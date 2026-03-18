@@ -1,0 +1,16 @@
+{
+  "name": "digital-product-system",
+  "version": "1.0.0",
+  "description": "Modular MERN Digital Product and Accounting System",
+  "main": "backend/server.js",
+  "scripts": {
+    "start": "npm run start --prefix backend",
+    "dev:backend": "npm run dev --prefix backend",
+    "dev:frontend": "npm start --prefix frontend",
+    "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
+    "seed": "npm run seed --prefix seeder"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}
