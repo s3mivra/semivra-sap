@@ -35,3 +35,20 @@ exports.lockPeriod = async (req, res) => {
         res.status(500).json({ success: false, error: error.message });
     }
 };
+
+// NEW: Emergency Override to reopen the books
+exports.unlockPeriod = async (req, res) => {
+    try {
+        let settings = await SystemSetting.findOne();
+        if (!settings) return res.status(404).json({ success: false, message: 'Settings not found.' });
+
+        // Reset the clock to the beginning of time
+        settings.lockedDate = new Date('2000-01-01'); 
+        settings.lockedBy = req.user.id;
+        await settings.save();
+
+        res.status(200).json({ success: true, message: 'EMERGENCY OVERRIDE: Books are now fully unlocked.', data: settings });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+};

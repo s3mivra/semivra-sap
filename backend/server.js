@@ -25,7 +25,6 @@ mongoose.connect(process.env.MONGO_URI)
 // Route Imports
 const authRoutes = require('./routes/authRoutes');
 const productRoutes = require('./routes/productRoutes');
-const licenseRoutes = require('./routes/licenseRoutes');
 const transactionRoutes = require('./routes/transactionRoutes')
 const userRoutes = require('./routes/userRoutes');
 const categoryRoutes = require('./routes/categoryRoutes');
@@ -37,7 +36,13 @@ const purchasingRoutes = require('./routes/purchasingRoutes');
 const arRoutes = require('./routes/arRoutes');
 const reportRoutes = require('./routes/reportRoutes');
 const analyticsRoutes = require('./routes/analyticsRoutes');
+const settingsRoutes = require('./routes/settingsRoutes');
+const licenseRoutes = require('./routes/licenseRoutes');
 
+app.use('/api/licenses', licenseRoutes);
+
+const licenseShield = require('./middleware/licenseShield');
+app.use(licenseShield);
 // Mount Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/products', productRoutes);
@@ -53,6 +58,7 @@ app.use('/api/purchasing', purchasingRoutes );
 app.use('/api/ar', arRoutes );
 app.use('/api/reports', reportRoutes);
 app.use('/api/analytics', analyticsRoutes);
+app.use('/api/settings', settingsRoutes);
 
 // AI & Analytics Placeholder Route
 app.use('/api/analytics', (req, res) => {

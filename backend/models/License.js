@@ -1,11 +1,17 @@
 const mongoose = require('mongoose');
 
-const LicenseSchema = new mongoose.Schema({
-    licenseKey: { type: String, required: true, unique: true },
-    product: { type: mongoose.Schema.Types.ObjectId, ref: 'Product', required: true },
-    user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-    status: { type: String, enum: ['Active', 'Expired', 'Revoked'], default: 'Active' },
-    expiresAt: { type: Date, required: true }
+const licenseSchema = new mongoose.Schema({
+    productKey: { type: String, required: true, unique: true }, // XXXX-XXXX-XXXX-XXXX
+    businessName: { type: String, required: true },
+    machineId: { type: String, default: null }, // The HWID (Fills on first activation)
+    status: { 
+        type: String, 
+        enum: ['Pending', 'Active', 'Suspended', 'Expired'], 
+        default: 'Pending' 
+    },
+    usageCount: { type: Number, default: 0 }, // 0 = New, 1 = Bound to a PC
+    expiresAt: { type: Date, required: true },
+    activatedAt: { type: Date }
 }, { timestamps: true });
 
-module.exports = mongoose.model('License', LicenseSchema);
+module.exports = mongoose.model('License', licenseSchema);

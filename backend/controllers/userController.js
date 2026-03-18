@@ -15,18 +15,23 @@ exports.getUsers = async (req, res) => {
 // @desc    Update user role
 // @route   PUT /api/users/:id/role
 // @access  Private (Super Admin)
+// NEW: UPDATE USER ROLE (Super Admin Only)
 exports.updateUserRole = async (req, res) => {
     try {
         const { role } = req.body;
-        // Ensure only valid roles are assigned
-        if (!['User', 'Admin', 'Super Admin'].includes(role)) {
-            return res.status(400).json({ success: false, message: 'Invalid role' });
-        }
+        const user = await User.findById(req.params.id);
 
-        const user = await User.findByIdAndUpdate(req.params.id, { role }, { new: true }).select('-password');
         if (!user) return res.status(404).json({ success: false, message: 'User not found' });
 
-        res.status(200).json({ success: true, data: user });
+        // Safety Catch: Prevent the Super Admin from demoting themselves!
+        if (user._id.toString() === req.user.id && role !== 'Super Admin') {
+            return res.status(400).json({ success: false, message: 'You cannot demote your own Super Admin account.' });
+        }
+
+        user.role = role;
+        await user.save();
+
+        res.status(200).json({ success: true, message: `${user.name} is now a ${role}!`, data: user });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }

@@ -138,6 +138,17 @@ exports.processRefund = async (req, res) => {
         if (sale.isRefunded) return res.status(400).json({ success: false, message: 'This receipt has already been refunded.' });
         if (sale.status === 'Unpaid') return res.status(400).json({ success: false, message: 'Cannot refund an unpaid AR debt. Void the invoice instead.' });
 
+        // NEW: PERIOD LOCKING SECURITY CHECK
+        const SystemSetting = require('../models/SystemSetting');
+        const settings = await SystemSetting.findOne();
+        if (settings && settings.lockedDate) {
+            if (new Date(sale.createdAt) <= new Date(settings.lockedDate)) {
+                return res.status(403).json({ 
+                    success: false, 
+                    message: `Period Closed: You cannot refund a transaction from before ${new Date(settings.lockedDate).toLocaleDateString()}. The accounting period is locked.` 
+                });
+            }
+        }
         // THE FIX: Safely extract the User ID (Mongoose uses _id). 
         // Fallback to the original cashier's ID to satisfy the strict database rules!
         const cashierId = req.user ? (req.user._id || req.user.id) : sale.processedBy;

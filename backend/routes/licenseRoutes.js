@@ -1,28 +1,8 @@
 const express = require('express');
-const { generateLicense, verifyLicense, revokeLicense } = require('../controllers/licenseController');
-const { protect, authorize } = require('../middleware/auth');
-const auditLog = require('../middleware/auditLog');
-
 const router = express.Router();
+const { verifyClientLicense } = require('../controllers/licenseController');
 
-// Public route for client software to ping
-router.post('/verify', verifyLicense);
-
-// Protected routes for Admins and the System
-router.post(
-    '/generate', 
-    protect, 
-    authorize('Admin', 'Super Admin'), 
-    auditLog('GENERATE_LICENSE'), 
-    generateLicense
-);
-
-router.put(
-    '/:id/revoke', 
-    protect, 
-    authorize('Admin', 'Super Admin'), 
-    auditLog('REVOKE_LICENSE'), 
-    revokeLicense
-);
+// The React app will POST to /api/licenses/verify
+router.post('/verify', verifyClientLicense);
 
 module.exports = router;
