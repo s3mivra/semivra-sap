@@ -12,4 +12,6 @@ router.route('/')
 router.route('/:id')
     .delete(authorize('Super Admin'), roleController.deleteRole);
 
+router.put('/:id', protect, authorize('manage_roles', 'god_mode'), roleController.updateRole);
+
 module.exports = router;

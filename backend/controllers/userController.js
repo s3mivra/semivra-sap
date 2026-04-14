@@ -26,22 +26,35 @@ exports.getUsers = async (req, res) => {
 // @desc    Update a user role
 // @route   PUT /api/users/:id/role
 // @access  Private (Super Admin)
-exports.updateUserRole = async (req, res) => {
+// @desc    Update a user profile (Role & Division)
+// @route   PUT /api/users/:id
+// @access  Private (Super Admin)
+exports.updateUser = async (req, res) => {
     try {
-        const { roleId } = req.body; // Updated to expect an ObjectId, not a string
+        // 👇 Catch BOTH the role and the division from the frontend!
+        const { roleId, division } = req.body; 
         
         const user = await User.findById(req.params.id).populate('role');
         if (!user) return res.status(404).json({ success: false, message: 'User not found' });
 
         // Safety Catch: Prevent the Super Admin from demoting themselves!
         if (user._id.toString() === req.user.id && user.role && user.role.level === 100) {
-            return res.status(400).json({ success: false, message: 'You cannot demote your own Super Admin account.' });
+            if (roleId && roleId !== user.role._id.toString()) {
+                 return res.status(400).json({ success: false, message: 'You cannot demote your own Super Admin account.' });
+            }
         }
 
-        user.role = roleId;
+        // 👇 THE FIX: Apply the new data to the user!
+        if (roleId) user.role = roleId;
+        
+        // If the frontend sent a division, update it. If they sent "null" or empty string, clear it.
+        if (division !== undefined) {
+             user.division = division || null; 
+        }
+
         await user.save();
 
-        res.status(200).json({ success: true, message: `User role updated successfully!`, data: user });
+        res.status(200).json({ success: true, message: `User profile updated successfully!`, data: user });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }

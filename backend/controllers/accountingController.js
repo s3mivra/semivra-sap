@@ -2,6 +2,7 @@ const Account = require('../models/Account');
 const JournalEntry = require('../models/JournalEntry');
 const PurchaseOrder = require('../models/PurchaseOrder');
 const FinancialPeriod = require('../models/FinancialPeriod');
+const mongoose = require('mongoose');
 
 // Helper to get the active division (Super Admins can pass it in the body/query)
 const getDivision = (req) => {
@@ -62,25 +63,38 @@ exports.createAccount = async (req, res) => {
 
 exports.getAccounts = async (req, res) => {
     try {
-        // 👇 THE ENTERPRISE SECURITY FIX 👇
         let targetDivision;
-        
+
+        // 1. Resolve the target division securely
         if (req.user?.role?.level === 100) {
             targetDivision = req.headers['x-division-id'];
         } else {
-            // Force the ID into a clean string so Mongoose never gets confused!
-            const userDiv = req.user?.division;
-            targetDivision = userDiv?._id ? userDiv._id.toString() : userDiv?.toString();
+            targetDivision = req.user?.division;
         }
 
         if (!targetDivision) {
-            return res.status(400).json({ success: false, message: 'Division context is missing. Please contact IT.' });
+            return res.status(400).json({ success: false, message: 'Division context is missing.' });
         }
-        // 👆 ================================= 👆
 
-        // 🚨 THE SHIELD: Force MongoDB to only return accounts for this exact Silo!
-        const accounts = await Account.find({ division: targetDivision })
-            .sort({ accountCode: 1 }); // Sorts by code
+        // 2. Force extract the pure string ID (Handles if it's an object or raw string)
+        const divIdString = targetDivision._id ? targetDivision._id.toString() : targetDivision.toString();
+
+        // 🚨 3. THE X-RAY: Watch your backend terminal when John logs in! 🚨
+        console.log(`\n=== 🕵️ SILO DEBUG: ${req.user.name} ===`);
+        console.log(`Target Division ID: "${divIdString}"`);
+
+        // 🛡️ 4. THE BULLETPROOF FAILSAFE
+        // Query using BOTH String and ObjectId formats. 
+        // This guarantees Mongoose finds the data regardless of how it was saved in the schema!
+        const accounts = await Account.find({
+            $or: [
+                { division: divIdString },
+                { division: new mongoose.Types.ObjectId(divIdString) }
+            ]
+        }).sort({ accountCode: 1 });
+
+        console.log(`Accounts Found: ${accounts.length}`);
+        console.log(`===================================\n`);
 
         res.status(200).json({ success: true, data: accounts });
     } catch (error) {

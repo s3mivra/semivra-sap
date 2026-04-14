@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { fetchUsers, deleteUser } from '../services/userService';
 import api from '../services/api'; 
-import { Users, UserPlus, Trash2, CheckCircle, AlertCircle, Loader, Shield, PlusCircle, ShieldCheck } from 'lucide-react';
+import { Users, UserPlus, Trash2, CheckCircle, AlertCircle, Loader, Shield, PlusCircle, ShieldCheck, Edit2, X } from 'lucide-react';
 
 // Define the available permissions for your ERP
 const AVAILABLE_PERMISSIONS = [
@@ -24,12 +24,16 @@ const AdminUserManager = () => {
     const [userFormData, setUserFormData] = useState({ name: '', email: '', password: '', roleId: '', division: '' });
     const [roleFormData, setRoleFormData] = useState({ name: '', level: 10, permissions: [] });
 
+    // ✏️ Edit States
+    const [editingUserId, setEditingUserId] = useState(null);
+    const [editingRoleId, setEditingRoleId] = useState(null);
+
     const loadData = async () => {
         try {
             const [usersRes, divRes, roleRes] = await Promise.all([
                 fetchUsers(), 
                 api.get('/divisions'), 
-                api.get('/roles') // Now using standard API call for roles
+                api.get('/roles')
             ]);
             
             setUsers(usersRes.data.data || usersRes.data || []); 
@@ -51,7 +55,25 @@ const AdminUserManager = () => {
     // ==========================================
     // USER MANAGEMENT LOGIC
     // ==========================================
-    const handleCreateUser = async (e) => {
+    const handleEditUserClick = (user) => {
+        setEditingUserId(user._id);
+        setUserFormData({
+            name: user.name,
+            email: user.email,
+            password: '', // Leave blank so they don't overwrite it unless they type one!
+            roleId: user.role?._id || user.role || '',
+            division: user.division?._id || user.division || ''
+        });
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    };
+
+    const cancelUserEdit = () => {
+        setEditingUserId(null);
+        setUserFormData({ name: '', email: '', password: '', roleId: roles.length > 0 ? roles[0]._id : '', division: '' });
+        setMessage({ type: '', text: '' });
+    };
+
+    const handleUserSubmit = async (e) => {
         e.preventDefault();
         setMessage({ type: '', text: '' });
         
@@ -61,12 +83,21 @@ const AdminUserManager = () => {
         }
 
         try {
-            await api.post('/users', userFormData); 
-            setMessage({ type: 'success', text: `Account created successfully!` });
-            setUserFormData({ name: '', email: '', password: '', roleId: userFormData.roleId, division: '' }); 
+            if (editingUserId) {
+                // UPDATE
+                const payload = { ...userFormData };
+                if (!payload.password) delete payload.password; // Don't send empty passwords
+                await api.put(`/users/${editingUserId}`, payload);
+                setMessage({ type: 'success', text: `User updated successfully!` });
+            } else {
+                // CREATE
+                await api.post('/users', userFormData); 
+                setMessage({ type: 'success', text: `Account created successfully!` });
+            }
+            cancelUserEdit(); 
             loadData();
         } catch (err) {
-            setMessage({ type: 'error', text: err.response?.data?.message || 'Failed to create user' });
+            setMessage({ type: 'error', text: err.response?.data?.message || 'Failed to save user' });
         }
     };
 
@@ -81,6 +112,22 @@ const AdminUserManager = () => {
     // ==========================================
     // ROLE MANAGEMENT LOGIC
     // ==========================================
+    const handleEditRoleClick = (role) => {
+        setEditingRoleId(role._id);
+        setRoleFormData({
+            name: role.name,
+            level: role.level,
+            permissions: role.permissions || []
+        });
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    };
+
+    const cancelRoleEdit = () => {
+        setEditingRoleId(null);
+        setRoleFormData({ name: '', level: 10, permissions: [] });
+        setMessage({ type: '', text: '' });
+    };
+
     const handlePermissionToggle = (permission) => {
         setRoleFormData(prev => {
             const newPerms = prev.permissions.includes(permission)
@@ -90,16 +137,23 @@ const AdminUserManager = () => {
         });
     };
 
-    const handleCreateRole = async (e) => {
+    const handleRoleSubmit = async (e) => {
         e.preventDefault();
         setMessage({ type: '', text: '' });
         try {
-            await api.post('/roles', roleFormData);
-            setMessage({ type: 'success', text: `Role "${roleFormData.name}" created successfully!` });
-            setRoleFormData({ name: '', level: 10, permissions: [] });
+            if (editingRoleId) {
+                // UPDATE
+                await api.put(`/roles/${editingRoleId}`, roleFormData);
+                setMessage({ type: 'success', text: `Role updated successfully!` });
+            } else {
+                // CREATE
+                await api.post('/roles', roleFormData);
+                setMessage({ type: 'success', text: `Role "${roleFormData.name}" created successfully!` });
+            }
+            cancelRoleEdit();
             loadData();
         } catch (err) {
-            setMessage({ type: 'error', text: err.response?.data?.message || 'Failed to create role' });
+            setMessage({ type: 'error', text: err.response?.data?.message || 'Failed to save role' });
         }
     };
 
@@ -131,13 +185,13 @@ const AdminUserManager = () => {
                 
                 <div className="flex bg-slate-100 p-1 rounded-lg">
                     <button 
-                        onClick={() => { setActiveTab('users'); setMessage({type:'', text:''}); }}
+                        onClick={() => { setActiveTab('users'); cancelRoleEdit(); setMessage({type:'', text:''}); }}
                         className={`px-4 py-2 text-sm font-bold rounded-md transition-all flex items-center gap-2 ${activeTab === 'users' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
                     >
                         <Users className="w-4 h-4" /> User Accounts
                     </button>
                     <button 
-                        onClick={() => { setActiveTab('roles'); setMessage({type:'', text:''}); }}
+                        onClick={() => { setActiveTab('roles'); cancelUserEdit(); setMessage({type:'', text:''}); }}
                         className={`px-4 py-2 text-sm font-bold rounded-md transition-all flex items-center gap-2 ${activeTab === 'roles' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
                     >
                         <Shield className="w-4 h-4" /> Security Roles
@@ -159,10 +213,19 @@ const AdminUserManager = () => {
             {activeTab === 'users' && (
                 <div className="animate-in fade-in slide-in-from-bottom-2 duration-300">
                     <div className="mb-8 p-6 bg-slate-50 rounded-xl border border-slate-200">
-                        <h3 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2">
-                            <UserPlus className="w-5 h-5 text-indigo-600" /> Provision New Account
-                        </h3>
-                        <form onSubmit={handleCreateUser} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                        <div className="flex justify-between items-center mb-4">
+                            <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                                {editingUserId ? <Edit2 className="w-5 h-5 text-amber-600" /> : <UserPlus className="w-5 h-5 text-indigo-600" />} 
+                                {editingUserId ? 'Edit User Account' : 'Provision New Account'}
+                            </h3>
+                            {editingUserId && (
+                                <button onClick={cancelUserEdit} className="text-sm font-bold text-slate-500 hover:text-slate-700 flex items-center gap-1">
+                                    <X className="w-4 h-4" /> Cancel
+                                </button>
+                            )}
+                        </div>
+                        
+                        <form onSubmit={handleUserSubmit} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                             <div>
                                 <label className="block text-xs font-bold text-slate-600 mb-1">Full Name</label>
                                 <input type="text" required value={userFormData.name} onChange={e => setUserFormData({...userFormData, name: e.target.value})} className="w-full p-2 border border-slate-300 rounded focus:border-indigo-500 outline-none" />
@@ -172,8 +235,10 @@ const AdminUserManager = () => {
                                 <input type="email" required value={userFormData.email} onChange={e => setUserFormData({...userFormData, email: e.target.value})} className="w-full p-2 border border-slate-300 rounded focus:border-indigo-500 outline-none" />
                             </div>
                             <div>
-                                <label className="block text-xs font-bold text-slate-600 mb-1">Temporary Password</label>
-                                <input type="password" required minLength="6" value={userFormData.password} onChange={e => setUserFormData({...userFormData, password: e.target.value})} className="w-full p-2 border border-slate-300 rounded focus:border-indigo-500 outline-none" />
+                                <label className="block text-xs font-bold text-slate-600 mb-1">
+                                    {editingUserId ? 'New Password (Optional)' : 'Temporary Password'}
+                                </label>
+                                <input type="password" required={!editingUserId} minLength="6" value={userFormData.password} onChange={e => setUserFormData({...userFormData, password: e.target.value})} className="w-full p-2 border border-slate-300 rounded focus:border-indigo-500 outline-none" />
                             </div>
                             <div className="border-t border-slate-200 pt-4 md:col-span-2 lg:col-span-3 grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <div>
@@ -192,8 +257,8 @@ const AdminUserManager = () => {
                                 </div>
                             </div>
                             <div className="md:col-span-2 lg:col-span-3 mt-2">
-                                <button type="submit" className="w-full py-3 bg-slate-800 text-white rounded font-bold hover:bg-slate-900 transition-colors">
-                                    Create User
+                                <button type="submit" className={`w-full py-3 text-white rounded font-bold transition-colors ${editingUserId ? 'bg-amber-500 hover:bg-amber-600' : 'bg-slate-800 hover:bg-slate-900'}`}>
+                                    {editingUserId ? 'Update User' : 'Create User'}
                                 </button>
                             </div>
                         </form>
@@ -228,7 +293,10 @@ const AdminUserManager = () => {
                                                 <span className="font-medium text-slate-700 text-xs">{user.division.divisionName || user.division.divisionCode}</span>
                                             ) : <span className="text-slate-400 italic text-xs">Global Access</span>}
                                         </td>
-                                        <td className="p-4 text-right">
+                                        <td className="p-4 text-right flex justify-end gap-2">
+                                            <button onClick={() => handleEditUserClick(user)} className="p-2 text-amber-500 hover:bg-amber-50 rounded">
+                                                <Edit2 className="w-4 h-4" />
+                                            </button>
                                             <button onClick={() => handleDeleteUser(user._id)} className="p-2 text-rose-500 hover:bg-rose-50 rounded">
                                                 <Trash2 className="w-4 h-4" />
                                             </button>
@@ -247,10 +315,19 @@ const AdminUserManager = () => {
             {activeTab === 'roles' && (
                 <div className="animate-in fade-in slide-in-from-bottom-2 duration-300">
                     <div className="mb-8 p-6 bg-slate-50 rounded-xl border border-slate-200">
-                        <h3 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2">
-                            <PlusCircle className="w-5 h-5 text-indigo-600" /> Define New Role
-                        </h3>
-                        <form onSubmit={handleCreateRole} className="space-y-4">
+                        <div className="flex justify-between items-center mb-4">
+                            <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                                {editingRoleId ? <Edit2 className="w-5 h-5 text-amber-600" /> : <PlusCircle className="w-5 h-5 text-indigo-600" />} 
+                                {editingRoleId ? 'Edit Security Role' : 'Define New Role'}
+                            </h3>
+                            {editingRoleId && (
+                                <button onClick={cancelRoleEdit} className="text-sm font-bold text-slate-500 hover:text-slate-700 flex items-center gap-1">
+                                    <X className="w-4 h-4" /> Cancel
+                                </button>
+                            )}
+                        </div>
+                        
+                        <form onSubmit={handleRoleSubmit} className="space-y-4">
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <div>
                                     <label className="block text-xs font-bold text-slate-600 mb-1">Role Name</label>
@@ -281,8 +358,8 @@ const AdminUserManager = () => {
                                 </div>
                             </div>
 
-                            <button type="submit" className="w-full mt-4 py-3 bg-indigo-600 text-white rounded font-bold hover:bg-indigo-700 transition-colors">
-                                Save Security Role
+                            <button type="submit" className={`w-full mt-4 py-3 text-white rounded font-bold transition-colors ${editingRoleId ? 'bg-amber-500 hover:bg-amber-600' : 'bg-indigo-600 hover:bg-indigo-700'}`}>
+                                {editingRoleId ? 'Update Security Role' : 'Save Security Role'}
                             </button>
                         </form>
                     </div>
@@ -319,7 +396,10 @@ const AdminUserManager = () => {
                                                 </div>
                                             )}
                                         </td>
-                                        <td className="p-4 text-right">
+                                        <td className="p-4 text-right flex justify-end gap-2">
+                                            <button onClick={() => handleEditRoleClick(role)} className="p-2 text-amber-500 hover:bg-amber-50 rounded">
+                                                <Edit2 className="w-4 h-4" />
+                                            </button>
                                             {role.level !== 100 && (
                                                 <button onClick={() => handleDeleteRole(role._id)} className="p-2 text-rose-500 hover:bg-rose-50 rounded">
                                                     <Trash2 className="w-4 h-4" />

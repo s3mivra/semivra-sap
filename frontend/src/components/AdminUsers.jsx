@@ -1,154 +1,219 @@
 import React, { useState, useEffect } from 'react';
-import { fetchUsers, createUser, deleteUser } from '../services/userService';
+import api from '../services/api';
+import { updateUser } from '../services/userService'; // Ensure this is imported!
+import { Edit2, Trash2, X } from 'lucide-react';
 
-const AdminUsers = () => {
+const AdminUserManager = () => {
     const [users, setUsers] = useState([]);
+    const [roles, setRoles] = useState([]);
+    const [divisions, setDivisions] = useState([]);
     const [loading, setLoading] = useState(true);
     const [status, setStatus] = useState({ type: '', message: '' });
     
-    // Grab current user to prevent them from deleting themselves
-    const currentUser = JSON.parse(localStorage.getItem('user')) || {};
+    // 👇 NEW: Track if we are editing an existing user
+    const [editingId, setEditingId] = useState(null);
 
-    const [userForm, setUserForm] = useState({
+    const [formData, setFormData] = useState({
         name: '',
         email: '',
         password: '',
-        role: 'Cashier' // Default role for safety
+        role: '',
+        division: ''
     });
 
-    const loadUsers = async () => {
+    const loadData = async () => {
         try {
-            const res = await fetchUsers();
-            setUsers(res.data);
+            const [usersRes, rolesRes, divRes] = await Promise.all([
+                api.get('/users'),
+                api.get('/roles'),
+                api.get('/divisions')
+            ]);
+            setUsers(usersRes.data.data || usersRes.data);
+            setRoles(rolesRes.data.data || rolesRes.data);
+            setDivisions(divRes.data.data || divRes.data);
         } catch (error) {
-            setStatus({ type: 'error', message: 'Failed to load users. Are you a Super Admin?' });
+            console.error('Failed to load data:', error);
+            setStatus({ type: 'error', message: 'Failed to load system data.' });
         } finally {
             setLoading(false);
         }
     };
 
-    useEffect(() => { loadUsers(); }, []);
+    useEffect(() => { loadData(); }, []);
+
+    const handleChange = (e) => setFormData({ ...formData, [e.target.name]: e.target.value });
+
+    // 👇 NEW: Populate form when Edit is clicked
+    const handleEditClick = (user) => {
+        setEditingId(user._id);
+        setFormData({
+            name: user.name,
+            email: user.email,
+            role: user.role?._id || user.role || '',
+            division: user.division?._id || user.division || '',
+            password: '' // Never populate passwords! Leave blank unless they want to change it.
+        });
+        window.scrollTo({ top: 0, behavior: 'smooth' }); // Scroll up to the form
+    };
+
+    // 👇 NEW: Cancel Edit Mode
+    const cancelEdit = () => {
+        setEditingId(null);
+        setFormData({ name: '', email: '', password: '', role: '', division: '' });
+    };
 
     const handleSubmit = async (e) => {
         e.preventDefault();
         setStatus({ type: '', message: '' });
-        
+
         try {
-            await createUser(userForm);
-            setStatus({ type: 'success', message: `User ${userForm.name} created successfully!` });
-            setUserForm({ name: '', email: '', password: '', role: 'Cashier' });
-            loadUsers();
+            if (editingId) {
+                // 🔄 EDIT MODE: Send PUT request
+                const updatePayload = {
+                    name: formData.name,
+                    email: formData.email,
+                    roleId: formData.role, // Match what your backend expects!
+                    division: formData.division
+                };
+                
+                // Only send password if they actually typed a new one
+                if (formData.password) updatePayload.password = formData.password;
+
+                await updateUser(editingId, updatePayload);
+                setStatus({ type: 'success', message: 'User updated successfully!' });
+            } else {
+                // ➕ CREATE MODE: Send POST request
+                await api.post('/users', formData);
+                setStatus({ type: 'success', message: 'User created successfully!' });
+            }
+
+            cancelEdit(); // Reset form
+            loadData();   // Refresh table
         } catch (error) {
-            setStatus({ type: 'error', message: error.response?.data?.message || 'Failed to create user.' });
+            setStatus({ type: 'error', message: error.response?.data?.message || 'Operation failed.' });
         }
     };
 
-    const handleDelete = async (userId, userName) => {
-        if (!window.confirm(`Are you sure you want to permanently delete ${userName}'s account?`)) return;
-        
+    const handleDelete = async (id, name) => {
+        if (!window.confirm(`Are you sure you want to delete ${name}?`)) return;
         try {
-            await deleteUser(userId);
-            setStatus({ type: 'success', message: 'User deleted successfully.' });
-            loadUsers();
+            await api.delete(`/users/${id}`);
+            setStatus({ type: 'success', message: 'User deleted.' });
+            loadData();
         } catch (error) {
-            setStatus({ type: 'error', message: error.response?.data?.message || 'Failed to delete user.' });
+            setStatus({ type: 'error', message: 'Failed to delete user.' });
         }
     };
 
-    if (loading) return <div style={{ padding: '20px' }}>Loading User Management...</div>;
+    if (loading) return <div className="p-6 text-slate-500">Loading User Manager...</div>;
 
     return (
-        <div style={{ padding: '20px', maxWidth: '1000px', margin: '0 auto' }}>
-            <h1 style={{ color: '#2c3e50', borderBottom: '2px solid #eee', paddingBottom: '10px', display: 'flex', alignItems: 'center', gap: '10px' }}>
-                👥 Manage System Users
-            </h1>
+        <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+            <h2 className="text-xl font-semibold text-slate-800 mb-6">Manage Users</h2>
 
             {status.message && (
-                <div style={{ padding: '15px', marginBottom: '20px', borderRadius: '4px', backgroundColor: status.type === 'success' ? '#e8f8f5' : '#fdedec', color: status.type === 'success' ? '#27ae60' : '#c0392b', fontWeight: 'bold' }}>
+                <div className={`p-4 mb-6 rounded-lg font-medium text-sm border ${status.type === 'success' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-red-50 text-red-700 border-red-200'}`}>
                     {status.message}
                 </div>
             )}
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '20px' }}>
-                
-                {/* LEFT SIDE: Create User Form */}
-                <div style={{ backgroundColor: '#fff', padding: '20px', borderRadius: '8px', boxShadow: '0 2px 8px rgba(0,0,0,0.1)', height: 'fit-content' }}>
-                    <h3 style={{ margin: '0 0 15px 0', color: '#34495e' }}>Add New Employee</h3>
-                    <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
-                        <div>
-                            <label style={{ display: 'block', fontSize: '12px', fontWeight: 'bold', color: '#7f8c8d', marginBottom: '5px' }}>Full Name</label>
-                            <input type="text" required value={userForm.name} onChange={e => setUserForm({...userForm, name: e.target.value})} style={{ width: '100%', padding: '10px', borderRadius: '4px', border: '1px solid #ccc' }} />
-                        </div>
-                        <div>
-                            <label style={{ display: 'block', fontSize: '12px', fontWeight: 'bold', color: '#7f8c8d', marginBottom: '5px' }}>Email Address</label>
-                            <input type="email" required value={userForm.email} onChange={e => setUserForm({...userForm, email: e.target.value})} style={{ width: '100%', padding: '10px', borderRadius: '4px', border: '1px solid #ccc' }} />
-                        </div>
-                        <div>
-                            <label style={{ display: 'block', fontSize: '12px', fontWeight: 'bold', color: '#7f8c8d', marginBottom: '5px' }}>Temporary Password</label>
-                            <input type="password" required minLength="6" value={userForm.password} onChange={e => setUserForm({...userForm, password: e.target.value})} style={{ width: '100%', padding: '10px', borderRadius: '4px', border: '1px solid #ccc' }} />
-                        </div>
-                        <div>
-                            <label style={{ display: 'block', fontSize: '12px', fontWeight: 'bold', color: '#7f8c8d', marginBottom: '5px' }}>System Role</label>
-                            <select value={userForm.role} onChange={e => setUserForm({...userForm, role: e.target.value})} style={{ width: '100%', padding: '10px', borderRadius: '4px', border: '2px solid #3498db', fontWeight: 'bold', color: '#2c3e50' }}>
-                                <option value="Cashier">Cashier (POS Only)</option>
-                                <option value="Admin">Admin (Inventory, Purchasing, Analytics)</option>
-                                <option value="Super Admin">Super Admin (Full Access & Users)</option>
-                            </select>
-                        </div>
-                        <button type="submit" style={{ padding: '12px', backgroundColor: '#27ae60', color: 'white', border: 'none', borderRadius: '4px', fontWeight: 'bold', cursor: 'pointer', marginTop: '10px' }}>
-                            Create Account
+            {/* FORM: Dynamically switches between Create and Edit */}
+            <form onSubmit={handleSubmit} className="bg-slate-50 p-5 rounded-lg border border-slate-200 mb-8">
+                <div className="flex justify-between items-center mb-4">
+                    <h3 className="font-bold text-slate-700">
+                        {editingId ? '✏️ Edit User' : '➕ Add New User'}
+                    </h3>
+                    {editingId && (
+                        <button type="button" onClick={cancelEdit} className="text-slate-400 hover:text-slate-600 flex items-center gap-1 text-sm font-medium">
+                            <X className="w-4 h-4" /> Cancel Edit
                         </button>
-                    </form>
+                    )}
                 </div>
 
-                {/* RIGHT SIDE: Active Users Directory */}
-                <div style={{ backgroundColor: '#fff', borderRadius: '8px', boxShadow: '0 2px 8px rgba(0,0,0,0.1)', overflow: 'hidden' }}>
-                    <div style={{ backgroundColor: '#f8f9fa', padding: '15px 20px', borderBottom: '1px solid #eee' }}>
-                        <h3 style={{ margin: 0, color: '#34495e' }}>Active Directory</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-4">
+                    <div>
+                        <label className="block text-xs font-semibold text-slate-600 mb-1.5 uppercase">Full Name</label>
+                        <input type="text" name="name" required value={formData.name} onChange={handleChange} className="w-full p-2 border border-slate-300 rounded-md focus:ring-2 focus:ring-indigo-500 outline-none" />
                     </div>
-                    <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '14px' }}>
-                        <thead style={{ color: '#7f8c8d', backgroundColor: '#fdfefe' }}>
-                            <tr>
-                                <th style={{ padding: '12px 20px', borderBottom: '2px solid #eee' }}>Name</th>
-                                <th style={{ padding: '12px 20px', borderBottom: '2px solid #eee' }}>Email</th>
-                                <th style={{ padding: '12px 20px', borderBottom: '2px solid #eee' }}>Role</th>
-                                <th style={{ padding: '12px 20px', borderBottom: '2px solid #eee', textAlign: 'center' }}>Action</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {users.map(user => (
-                                <tr key={user._id} style={{ borderBottom: '1px solid #eee' }}>
-                                    <td style={{ padding: '12px 20px', fontWeight: 'bold', color: '#2c3e50' }}>{user.name}</td>
-                                    <td style={{ padding: '12px 20px', color: '#7f8c8d' }}>{user.email}</td>
-                                    <td style={{ padding: '12px 20px' }}>
-                                        <span style={{ 
-                                            padding: '4px 8px', borderRadius: '12px', fontSize: '11px', fontWeight: 'bold',
-                                            backgroundColor: user.role === 'Super Admin' ? '#f5eef8' : user.role === 'Admin' ? '#ebf5fb' : '#eafaf1',
-                                            color: user.role === 'Super Admin' ? '#8e44ad' : user.role === 'Admin' ? '#2980b9' : '#27ae60'
-                                        }}>
-                                            {user.role}
-                                        </span>
-                                    </td>
-                                    <td style={{ padding: '12px 20px', textAlign: 'center' }}>
-                                        {currentUser._id !== user._id && currentUser.id !== user._id ? (
-                                            <button 
-                                                onClick={() => handleDelete(user._id, user.name)}
-                                                style={{ padding: '6px 12px', backgroundColor: '#e74c3c', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold' }}
-                                            >
-                                                Delete
-                                            </button>
-                                        ) : (
-                                            <span style={{ fontSize: '12px', color: '#bdc3c7', fontStyle: 'italic' }}>You</span>
-                                        )}
-                                    </td>
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
+                    <div>
+                        <label className="block text-xs font-semibold text-slate-600 mb-1.5 uppercase">Email Address</label>
+                        <input type="email" name="email" required value={formData.email} onChange={handleChange} className="w-full p-2 border border-slate-300 rounded-md focus:ring-2 focus:ring-indigo-500 outline-none" />
+                    </div>
+                    <div>
+                        <label className="block text-xs font-semibold text-slate-600 mb-1.5 uppercase">
+                            {editingId ? 'New Password (Leave blank to keep)' : 'Password'}
+                        </label>
+                        <input type="password" name="password" required={!editingId} value={formData.password} onChange={handleChange} className="w-full p-2 border border-slate-300 rounded-md focus:ring-2 focus:ring-indigo-500 outline-none" />
+                    </div>
+                    <div>
+                        <label className="block text-xs font-semibold text-slate-600 mb-1.5 uppercase">System Role</label>
+                        <select name="role" required value={formData.role} onChange={handleChange} className="w-full p-2 border border-slate-300 rounded-md focus:ring-2 focus:ring-indigo-500 outline-none bg-white">
+                            <option value="">Select a Role...</option>
+                            {roles.map(r => <option key={r._id} value={r._id}>{r.name}</option>)}
+                        </select>
+                    </div>
+                    <div>
+                        <label className="block text-xs font-semibold text-slate-600 mb-1.5 uppercase">Assigned Division</label>
+                        <select name="division" value={formData.division} onChange={handleChange} className="w-full p-2 border border-slate-300 rounded-md focus:ring-2 focus:ring-indigo-500 outline-none bg-white">
+                            <option value="">Global / No Division</option>
+                            {divisions.map(d => <option key={d._id} value={d._id}>{d.divisionName || d.name}</option>)}
+                        </select>
+                    </div>
                 </div>
+                <button type="submit" className={`px-4 py-2 text-white font-medium rounded-md shadow-sm transition-colors ${editingId ? 'bg-amber-500 hover:bg-amber-600' : 'bg-indigo-600 hover:bg-indigo-700'}`}>
+                    {editingId ? 'Update User Profile' : 'Create User'}
+                </button>
+            </form>
+
+            {/* USERS TABLE */}
+            <div className="overflow-x-auto">
+                <table className="w-full text-left text-sm border-collapse">
+                    <thead>
+                        <tr className="bg-slate-100 text-slate-600 border-b border-slate-200">
+                            <th className="p-4 font-semibold">Name</th>
+                            <th className="p-4 font-semibold">Email</th>
+                            <th className="p-4 font-semibold">Role</th>
+                            <th className="p-4 font-semibold">Division</th>
+                            <th className="p-4 font-semibold text-right">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {users.map(u => (
+                            <tr key={u._id} className="border-b border-slate-100 hover:bg-slate-50">
+                                <td className="p-4 font-medium text-slate-900">{u.name}</td>
+                                <td className="p-4 text-slate-600">{u.email}</td>
+                                <td className="p-4">
+                                    <span className="bg-indigo-50 text-indigo-700 px-2 py-1 rounded text-xs font-bold border border-indigo-100">
+                                        {u.role?.name || 'None'}
+                                    </span>
+                                </td>
+                                <td className="p-4 text-slate-600">{u.division?.divisionName || u.division?.name || 'Global'}</td>
+                                <td className="p-4 text-right flex justify-end gap-2">
+                                    
+                                    {/* 👇 NEW EDIT BUTTON 👇 */}
+                                    <button 
+                                        onClick={() => handleEditClick(u)}
+                                        className="p-1.5 text-amber-600 hover:bg-amber-50 rounded-md border border-transparent hover:border-amber-200 transition-colors"
+                                        title="Edit User"
+                                    >
+                                        <Edit2 className="w-4 h-4" />
+                                    </button>
+
+                                    <button 
+                                        onClick={() => handleDelete(u._id, u.name)}
+                                        className="p-1.5 text-red-500 hover:bg-red-50 rounded-md border border-transparent hover:border-red-200 transition-colors"
+                                        title="Delete User"
+                                    >
+                                        <Trash2 className="w-4 h-4" />
+                                    </button>
+                                </td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
             </div>
         </div>
     );
 };
 
-export default AdminUsers;
+export default AdminUserManager;

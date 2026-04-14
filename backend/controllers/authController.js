@@ -81,12 +81,21 @@ exports.loginUser = async (req, res) => {
 // @desc    Logout user & invalidate session
 // @route   POST /api/auth/logout
 // @access  Private
-exports.logoutUser = async (req, res) => {
+// @desc    Log user out / clear cookie
+// @route   POST /api/auth/logout
+// @access  Public
+exports.logout = async (req, res) => {
     try {
-        await User.findByIdAndUpdate(req.user.id, { currentSessionToken: null });
-        res.status(200).json({ success: true, message: 'Logged out securely.' });
+        // If you ever use HTTP-only cookies in the future, you would clear them here like this:
+        // res.cookie('token', 'none', { expires: new Date(Date.now() + 10 * 1000), httpOnly: true });
+
+        res.status(200).json({
+            success: true,
+            message: 'Successfully logged out of the ERP system.'
+        });
     } catch (error) {
-        res.status(500).json({ success: false, error: error.message });
+        console.error("Logout Error:", error.message);
+        res.status(500).json({ success: false, message: 'Server error during logout' });
     }
 };
 

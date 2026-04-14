@@ -38,3 +38,10 @@ exports.deleteRole = async (req, res) => {
         res.status(500).json({ success: false, message: error.message });
     }
 };
+
+exports.updateRole = async (req, res) => {
+    try {
+        const role = await Role.findByIdAndUpdate(req.params.id, req.body, { new: true, runValidators: true });
+        res.status(200).json({ success: true, data: role });
+    } catch (error) { res.status(500).json({ success: false, error: error.message }); }
+};
