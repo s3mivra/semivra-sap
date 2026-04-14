@@ -32,7 +32,7 @@ const SaleSchema = new mongoose.Schema({
     paymentMethod: { type: String, enum: ['Cash', 'Card', 'GCash', 'AR', 'Other'], default: 'Cash' },
     
     // NEW: Universal POS tracking
-    customerName: { type: String, default: 'Walk-in' },
+    customer: { type: mongoose.Schema.Types.ObjectId, ref: 'Customer' },
     status: { type: String, enum: ['Paid', 'Unpaid', 'Refunded'], default: 'Paid' },
     
     // NEW: Refund Tracking

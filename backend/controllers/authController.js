@@ -1,9 +1,9 @@
 const User = require('../models/User');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-const crypto = require('crypto'); // <-- This built-in library handles the session tokens
+const crypto = require('crypto'); 
 
-// Helper to generate JWT (Now includes the sessionToken!)
+// Helper to generate JWT (Includes the sessionToken)
 const generateToken = (id, role, sessionToken) => {
     return jwt.sign({ id, role, sessionToken }, process.env.JWT_SECRET, { expiresIn: '1d' });
 };
@@ -18,7 +18,12 @@ exports.registerUser = async (req, res) => {
         const userExists = await User.findOne({ email });
         if (userExists) return res.status(400).json({ message: 'User already exists' });
 
-        const user = await User.create({ name, email, password });
+        // Note: Password hashing should ideally be done in a Mongoose pre-save hook, 
+        // but if you aren't using one, make sure to hash it here like we did in userController!
+        const salt = await bcrypt.genSalt(10);
+        const hashedPassword = await bcrypt.hash(password, salt);
+
+        const user = await User.create({ name, email, password: hashedPassword });
 
         res.status(201).json({
             success: true,
@@ -37,27 +42,38 @@ exports.loginUser = async (req, res) => {
     try {
         const { email, password } = req.body;
 
-        const user = await User.findOne({ email });
-        if (!user) return res.status(401).json({ message: 'Invalid email or password' });
+        // 👇 FIX 1: Fetch the user and populate BOTH Role and Division
+        const user = await User.findOne({ email })
+            .populate('role')
+            .populate('division'); 
+        
+        if (!user) return res.status(401).json({ success: false, message: 'Invalid credentials' });
 
         const isMatch = await bcrypt.compare(password, user.password);
-        if (!isMatch) return res.status(401).json({ message: 'Invalid email or password' });
+        if (!isMatch) return res.status(401).json({ success: false, message: 'Invalid credentials' });
 
-        // Generate a new random session token
-        const newSessionToken = crypto.randomBytes(20).toString('hex');
-        
-        // Save the new token to the database
-        user.currentSessionToken = newSessionToken;
-        await user.save();
+        // 👇 FIX 2: Generate and save the Session Token to prevent multi-device bugs
+        const sessionToken = crypto.randomBytes(20).toString('hex');
+        // ✅ THE ENTERPRISE WAY (Only touches the exact field you want)
+        await User.updateOne({ _id: user._id }, { currentSessionToken: sessionToken });
+
+        // Generate the JWT token using the helper
+        const token = generateToken(user._id, user.role ? user.role._id : null, sessionToken);
 
         res.status(200).json({
             success: true,
-            user: { id: user._id, name: user.name, email: user.email, role: user.role },
-            token: generateToken(user._id, user.role, newSessionToken)
+            token: token,
+            user: {
+                id: user._id,
+                name: user.name,
+                email: user.email,
+                // 🚨 THE CRITICAL FIX: Send the FULL objects, not just the names!
+                role: user.role, 
+                division: user.division 
+            }
         });
     } catch (error) {
-        // We added a console.log here so if it crashes again, the terminal will scream exactly why
-        console.error("Login Crash:", error); 
+        console.error("Login Error:", error);
         res.status(500).json({ success: false, error: error.message });
     }
 };
@@ -69,6 +85,34 @@ exports.logoutUser = async (req, res) => {
     try {
         await User.findByIdAndUpdate(req.user.id, { currentSessionToken: null });
         res.status(200).json({ success: true, message: 'Logged out securely.' });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+};
+
+// @desc    Get current logged in user
+// @route   GET /api/auth/me
+// @access  Private
+exports.getMe = async (req, res) => {
+    try {
+        // 👇 FIX 3: Populate BOTH Role and Division here as well
+        const user = await User.findById(req.user.id)
+            .populate('role')
+            .populate('division');
+        
+        if (!user) return res.status(404).json({ success: false, message: 'User not found' });
+
+        res.status(200).json({
+            success: true,
+            data: {
+                _id: user._id,
+                name: user.name,
+                email: user.email,
+                // 🚨 CRITICAL FIX: Send the FULL objects back to React
+                role: user.role,
+                division: user.division
+            }
+        });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }

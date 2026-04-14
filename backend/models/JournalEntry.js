@@ -5,16 +5,33 @@ const JournalLineSchema = new mongoose.Schema({
     account: { type: mongoose.Schema.Types.ObjectId, ref: 'Account', required: true },
     debit: { type: Number, default: 0, min: 0 },
     credit: { type: Number, default: 0, min: 0 },
-    memo: { type: String }
+    memo: { type: String },
+    // 🏢 NEW: The bridge to AR/AP Subsidiary Ledgers (Customers/Suppliers)
+    subsidiaryId: { type: mongoose.Schema.Types.ObjectId, ref: 'Client' },
+    
+    // 🔍 NEW: Bank Reconciliation Tracking
+    isReconciled: { type: Boolean, default: false },
+    reconciledAt: { type: Date }
 });
 
 const JournalEntrySchema = new mongoose.Schema({
-    entryNumber: { type: String, required: true, unique: true }, // e.g., JRN-2023-0001
-    date: { type: Date, default: Date.now, required: true },
-    description: { type: String, required: true },
+    entryNumber: { type: String, required: true, unique: true }, // e.g., JRN-2026-04-0001
     
-    // Reference to other modules (e.g., the ID of a Sale, Purchase Order, or manual entry)
-    sourceDocument: { type: String }, 
+    // 📅 NEW: Date Separation 
+    documentDate: { type: Date, required: true }, // When the actual invoice/receipt happened
+    postingDate: { type: Date, default: Date.now }, // When the accountant typed it into the system
+    period: { type: String, required: true }, // Format: "YYYY-MM" (e.g., "2026-04") for fast P&L queries
+    
+    description: { type: String, required: true },
+    sourceDocument: { type: String }, // Reference to a Sale, Purchase Order, or Payroll Run
+    
+    // 🚦 NEW: Status tracking
+    status: { type: String, enum: ['Draft', 'Posted', 'Voided', 'Closed'], default: 'Posted' },
+    
+    // 🛡️ NEW: Audit Trail fields for Voiding
+    voidReason: { type: String },
+    voidedAt: { type: Date },
+    voidedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
     
     lines: [JournalLineSchema],
     
@@ -24,8 +41,7 @@ const JournalEntrySchema = new mongoose.Schema({
     postedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true }
 }, { timestamps: true });
 
-// Pre-save hook to ensure the fundamental law of accounting: Debits MUST equal Credits
-// Modern Mongoose hook (No 'next' callback needed!)
+// Modern Mongoose hook: Ensures fundamental law of accounting
 JournalEntrySchema.pre('validate', function() {
     // Calculate precision to avoid JavaScript floating point errors
     const debitSum = this.lines.reduce((acc, line) => acc + (line.debit || 0), 0);
@@ -34,7 +50,7 @@ JournalEntrySchema.pre('validate', function() {
     this.totalDebit = Math.round(debitSum * 100) / 100;
     this.totalCredit = Math.round(creditSum * 100) / 100;
 
-    // If it doesn't balance, we simply throw the error directly!
+    // If it doesn't balance, throw the error directly
     if (this.totalDebit !== this.totalCredit) {
         throw new Error(`Journal Entry is unbalanced! Debits: ${this.totalDebit}, Credits: ${this.totalCredit}`);
     }

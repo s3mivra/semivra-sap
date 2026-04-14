@@ -1,32 +1,42 @@
 const axios = require('axios');
-
-// Note: In production, store this URL in your client backend's .env file
-const GOD_MODE_SERVER = process.env.GOD_MODE_URL || 'http://localhost:6001/api/external';
+const os = require('os');
+const fs = require('fs').promises;
+const path = require('path');
+const { machineIdSync } = require('node-machine-id');
 
 exports.verifyClientLicense = async (req, res) => {
-    const { licenseKey, hwid } = req.body;
-
-    if (!licenseKey || !hwid) {
-        return res.status(400).json({ success: false, message: "License Key and Hardware ID are required." });
-    }
+    const { licenseKey } = req.body; 
+    if (!licenseKey) return res.status(400).json({ success: false, message: "Product Key is required." });
 
     try {
-        // SERVER-TO-SERVER POST: The frontend never sees this happen
-        const response = await axios.post(`${GOD_MODE_SERVER}/verify`, {
+        const hwid = machineIdSync();
+        const deviceName = os.hostname(); 
+        
+        // Ensure no trailing slash in your .env GOD_MODE_URL
+        const godModeUrl = process.env.GOD_MODE_URL; 
+        const verifyEndpoint = `${godModeUrl}/api/external/verify`;
+
+        const response = await axios.post(verifyEndpoint, {
             key: licenseKey,
-            hwid: hwid
+            hwid: hwid,
+            deviceName: deviceName
+        }, {
+            headers: { 'x-master-server-key': process.env.GOD_MODE_SECRET_KEY }
         });
 
-        // If God Mode approves, pass the success back to React
         if (response.data.valid) {
+            // 🚨 NEW: SAVE THE KEY LOCALLY SO THE ERP REMEMBERS IT
+            const configPath = path.join(__dirname, '../license.json');
+            await fs.writeFile(configPath, JSON.stringify({ activeKey: licenseKey }));
+
             return res.status(200).json({ 
-                success: true, 
+                success: true,
+                message: "System Activated Successfully!", 
                 expiresAt: response.data.expiresAt 
             });
         }
     } catch (error) {
-        // Catch rejections from God Mode (e.g., "Hardware Mismatch", "Suspended")
-        const errorMessage = error.response?.data?.message || "Failed to reach License Activation Server.";
+        const errorMessage = error.response?.data?.message || "Failed to reach License Server. Check your internet or Vercel URL.";
         return res.status(403).json({ success: false, message: errorMessage });
     }
 };

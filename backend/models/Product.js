@@ -12,6 +12,15 @@ const ProductSchema = new mongoose.Schema({
     // The Master Switch
     isPhysical: { type: Boolean, default: true }, 
 
+    // Inside models/Product.js
+    isRecipe: { type: Boolean, default: false },
+    
+    // The Bill of Materials (Only used if isRecipe is true)
+    ingredients: [{
+        rawMaterial: { type: mongoose.Schema.Types.ObjectId, ref: 'Product' },
+        quantityNeeded: { type: Number } // e.g., 0.018 for 18 grams of espresso
+    }],
+
     // Physical Goods Fields (NOT strictly required so digital products can save)
     unit: { type: mongoose.Schema.Types.ObjectId, ref: 'Unit' },
     currentStock: { type: Number, default: 0 }, 

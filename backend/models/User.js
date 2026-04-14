@@ -1,29 +1,39 @@
+// Inside models/User.js
 const mongoose = require('mongoose');
-const bcrypt = require('bcryptjs');
 
-const UserSchema = new mongoose.Schema({
+const userSchema = new mongoose.Schema({
     name: { type: String, required: true },
     email: { type: String, required: true, unique: true },
     password: { type: String, required: true },
-    role: { 
-        type: String, 
-        enum: ['User', 'Admin', 'Super Admin'], 
-        default: 'User' 
+    
+    // 👇 THE NEW ADVANCED ACCESS CONTROL 👇
+    // Add this inside your UserSchema
+    // ✅ THE NEW ENTERPRISE WAY
+role: { type: mongoose.Schema.Types.ObjectId, ref: 'Role', required: true },
+    
+    // 👇 NEW: Lock the user into a specific data silo
+    division: { type: mongoose.Schema.Types.ObjectId, ref: 'Division', required: false},
+    // 👆 ========================================= 👆
+    
+    // 👇 NEW: Payroll & Compensation Data 👇
+    compensation: {
+        payType: { type: String, enum: ['Salary', 'Hourly'], default: 'Salary' },
+        baseRate: { type: Number, default: 0 }, // Annual salary OR hourly rate
+        taxRate: { type: Number, default: 0.20 } // e.g., 20% standard deduction
     },
-    currentSessionToken: { type: String, default: null } // NEW: Tracks active login
+    // ----------------------------------------
+    businessUnit: { 
+        type: mongoose.Schema.Types.ObjectId, 
+        ref: 'BusinessUnit',
+        default: null // Super Admins might not belong to just one!
+    },
+    department: { 
+        type: mongoose.Schema.Types.ObjectId, 
+        ref: 'Department',
+        default: null
+    },
+    
+    isActive: { type: Boolean, default: true }
 }, { timestamps: true });
 
-// Password hashing middleware
-// Modern Mongoose async hook (no 'next' callback needed!)
-UserSchema.pre('save', async function() {
-    // If the password hasn't been modified (e.g., we are just updating the session token)
-    // Simply 'return' to exit the hook and continue saving.
-    if (!this.isModified('password')) {
-        return; 
-    }
-
-    // If it HAS been modified (e.g., new registration or password change), hash it:
-    const salt = await bcrypt.genSalt(10);
-    this.password = await bcrypt.hash(this.password, salt);
-});
-module.exports = mongoose.model('User', UserSchema);
+module.exports = mongoose.model('User', userSchema);

@@ -1,37 +1,47 @@
 const User = require('../models/User');
-
+const bcrypt = require('bcryptjs');
 // @desc    Get all users (excluding passwords)
 // @route   GET /api/users
-// @access  Private (Super Admin)
+// @access  Private (Admin / Super Admin)
 exports.getUsers = async (req, res) => {
     try {
-        const users = await User.find().select('-password').sort({ createdAt: -1 });
+        // 🏢 SILO LOCK: If they aren't God Mode, they only see users in their own branch!
+        let query = {};
+        if (req.user && req.user.role && req.user.role.level !== 100) {
+            query.division = req.user.division;
+        }
+
+        const users = await User.find(query)
+            .select('-password')
+            .populate('role', 'name level permissions')
+            .populate('division', 'divisionName divisionCode') // 👈 FIX: Semicolon removed here!
+            .sort({ createdAt: -1 });
+            
         res.status(200).json({ success: true, count: users.length, data: users });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
 };
 
-// @desc    Update user role
+// @desc    Update a user role
 // @route   PUT /api/users/:id/role
 // @access  Private (Super Admin)
-// NEW: UPDATE USER ROLE (Super Admin Only)
 exports.updateUserRole = async (req, res) => {
     try {
-        const { role } = req.body;
-        const user = await User.findById(req.params.id);
-
+        const { roleId } = req.body; // Updated to expect an ObjectId, not a string
+        
+        const user = await User.findById(req.params.id).populate('role');
         if (!user) return res.status(404).json({ success: false, message: 'User not found' });
 
         // Safety Catch: Prevent the Super Admin from demoting themselves!
-        if (user._id.toString() === req.user.id && role !== 'Super Admin') {
+        if (user._id.toString() === req.user.id && user.role && user.role.level === 100) {
             return res.status(400).json({ success: false, message: 'You cannot demote your own Super Admin account.' });
         }
 
-        user.role = role;
+        user.role = roleId;
         await user.save();
 
-        res.status(200).json({ success: true, message: `${user.name} is now a ${role}!`, data: user });
+        res.status(200).json({ success: true, message: `User role updated successfully!`, data: user });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
@@ -53,23 +63,27 @@ exports.deleteUser = async (req, res) => {
 
 // @desc    Create a new user/admin manually
 // @route   POST /api/users
-// @access  Private (Super Admin)
+// @access  Private (Admin / Super Admin)
 exports.createUser = async (req, res) => {
     try {
-        const { name, email, password, role } = req.body;
+        const { name, email, password, roleId, division } = req.body;
 
         const userExists = await User.findOne({ email });
-        if (userExists) {
-            return res.status(400).json({ success: false, message: 'User already exists' });
-        }
+        if (userExists) return res.status(400).json({ success: false, message: 'User already exists' });
 
-        const user = await User.create({ name, email, password, role });
+        // 🚨 THE FIX: Hash the temporary password before saving!
+        const salt = await bcrypt.genSalt(10);
+        const hashedPassword = await bcrypt.hash(password, salt);
 
-        res.status(201).json({ 
-            success: true, 
-            message: 'User created successfully',
-            data: { _id: user._id, name: user.name, email: user.email, role: user.role } 
+        const user = await User.create({ 
+            name, 
+            email, 
+            password: hashedPassword, // 👈 Saved securely!
+            role: roleId,
+            division: division || null 
         });
+
+        res.status(201).json({ success: true, message: 'User created successfully', data: user });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }

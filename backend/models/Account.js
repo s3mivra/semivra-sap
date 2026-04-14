@@ -1,16 +1,31 @@
 const mongoose = require('mongoose');
 
-const AccountSchema = new mongoose.Schema({
-    code: { type: String, required: true, unique: true }, // e.g., 1000, 2000, 4000
-    name: { type: String, required: true }, // e.g., "Cash", "Accounts Receivable", "Sales Revenue"
-    type: { 
+const accountSchema = new mongoose.Schema({
+    division: { type: mongoose.Schema.Types.ObjectId, ref: 'Division', required: true },
+    
+    // 👇 FIX: Removed 'unique: true' from here! It is now handled at the bottom.
+    accountCode: { type: String, required: true }, 
+    
+    code: { type: String }, 
+    name: { type: String },
+
+    accountName: { type: String, required: true }, 
+    accountType: { 
         type: String, 
         enum: ['Asset', 'Liability', 'Equity', 'Revenue', 'Expense'], 
         required: true 
     },
-    description: { type: String },
-    isActive: { type: Boolean, default: true },
-    isSystemAccount: { type: Boolean, default: false } // Prevents deletion of core accounts
+    accountGroup: { type: String }, 
+    
+    parentAccount: { type: mongoose.Schema.Types.ObjectId, ref: 'Account', default: null }, 
+    
+    openingBalance: { type: Number, default: 0 },
+    currentBalance: { type: Number, default: 0 },
+    
+    isActive: { type: Boolean, default: true } 
 }, { timestamps: true });
 
-module.exports = mongoose.model('Account', AccountSchema);
+// 🏢 THE MULTI-TENANT LOCK: "1010" is only unique WITHIN a specific division!
+accountSchema.index({ division: 1, accountCode: 1 }, { unique: true });
+
+module.exports = mongoose.model('Account', accountSchema);

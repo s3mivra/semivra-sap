@@ -10,32 +10,16 @@ const StockMovementSchema = new mongoose.Schema({
         required: true 
     },
     
-    quantity: { type: Number, required: true }, // Always positive. We use 'type' to know if it's adding or subtracting.
+    quantity: { type: Number, required: true }, 
     
-    // The reason for the movement (e.g., "Purchase Order 123", "Sale to Customer X", "Broken in transit")
     reference: { type: String, required: true }, 
     
     date: { type: Date, default: Date.now },
     processedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true }
 }, { timestamps: true });
 
-// Pre-save hook to update the cached 'currentStock' on the Product automatically!
-// Modern Mongoose hook (NO 'next' callback!)
-StockMovementSchema.pre('save', async function() {
-    const Product = mongoose.model('Product');
-    
-    // Determine if we are adding or subtracting stock
-    let stockChange = 0;
-    if (this.type === 'IN' || (this.type === 'ADJUSTMENT' && this.quantity > 0)) {
-        stockChange = this.quantity;
-    } else if (this.type === 'OUT') {
-        stockChange = -this.quantity;
-    }
-
-    // Update the product's total stock count
-    await Product.findByIdAndUpdate(this.product, {
-        $inc: { currentStock: stockChange }
-    });
-});
+// 🔥 THE GHOST HAS BEEN DELETED 🔥
+// All inventory math is now strictly controlled by the backend controllers 
+// (e.g., posController.js, purchasingController.js) to prevent double-counting.
 
 module.exports = mongoose.model('StockMovement', StockMovementSchema);

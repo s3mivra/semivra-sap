@@ -1,43 +1,64 @@
 const jwt = require('jsonwebtoken');
-const User = require('../models/User'); // Import the user model to check the DB
+const User = require('../models/User');
 
 const protect = async (req, res, next) => {
     let token;
+
+    // 1. Extract the token from the headers
     if (req.headers.authorization && req.headers.authorization.startsWith('Bearer')) {
         token = req.headers.authorization.split(' ')[1];
     }
 
-    if (!token) return res.status(401).json({ message: 'Not authorized, no token' });
+    if (!token) {
+        return res.status(401).json({ success: false, message: 'Not authorized to access this route' });
+    }
 
     try {
+        // 2. Verify the token signature
         const decoded = jwt.verify(token, process.env.JWT_SECRET);
         
-        // Look up the user in the DB to check their current active session
-        const currentUser = await User.findById(decoded.id).select('currentSessionToken');
+        // 3. Find the user and attach their full Role and Division data
+        const user = await User.findById(decoded.id).populate('role division');
 
-        // SECURITY CHECK: If the token in the DB does not match the token in the JWT...
-        if (!currentUser || currentUser.currentSessionToken !== decoded.sessionToken) {
-            return res.status(401).json({ message: 'Session expired or logged in from another device.' });
+        if (!user) {
+            return res.status(401).json({ success: false, message: 'The user belonging to this token no longer exists.' });
         }
 
-        req.user = decoded; // Attach user payload to request
+        // 4. THE FIX: The Safe Session Token Check
+        // Only reject if BOTH tokens exist AND they don't match. 
+        if (user.currentSessionToken && decoded.sessionToken && user.currentSessionToken !== decoded.sessionToken) {
+            return res.status(401).json({ success: false, message: 'Session expired. You logged in from another device.' });
+        }
+
+        // 5. Grant Access
+        req.user = user;
         next();
-    } catch (error) {
-        res.status(401).json({ message: 'Not authorized, token failed' });
+    } catch (err) {
+        console.error("Token Verification Failed:", err.message);
+        return res.status(401).json({ success: false, message: 'Token is invalid or expired' });
     }
 };
+
+// ... your authorize/role middleware below ...
 // Role-Based Access Control (RBAC)
-const authorize = (...roles) => {
+// FIX 3: Changed ...roles to ...requiredPermissions to match the logic inside!
+const authorize = (...requiredPermissions) => {
     return (req, res, next) => {
-        // Super Admin override: can access anything
-        if (req.user.role === 'Super Admin') {
+        // THE GOD MODE BYPASS: If they are level 100, let them through instantly!
+        if (req.user && req.user.role && req.user.role.level === 100) {
             return next();
         }
-        if (!roles.includes(req.user.role)) {
-            return res.status(403).json({ 
-                message: `User role ${req.user.role} is not authorized to access this route` 
-            });
+
+        // If they aren't God Mode, check their specific permissions
+        if (!req.user.role || !req.user.role.permissions) {
+             return res.status(403).json({ success: false, message: 'Access denied. Invalid role.' });
         }
+
+        const hasPermission = req.user.role.permissions.some(p => requiredPermissions.includes(p));
+        if (!hasPermission) {
+            return res.status(403).json({ success: false, message: 'Access denied. Missing permissions.' });
+        }
+        
         next();
     };
 };

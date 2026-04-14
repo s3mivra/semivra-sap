@@ -33,12 +33,29 @@ exports.processCheckout = async (req, res) => {
                 totalCOGS += (item.quantity * (prod.averageCost || 0));
             }
         }
+        // ... previous code (Step 2: Dynamic Math) ...
         totalCOGS = Number(totalCOGS.toFixed(2));
-
-        // NEW: Determine if this is an unpaid debt
         const saleStatus = paymentMethod === 'AR' ? 'Unpaid' : 'Paid';
 
-        // 3. CREATE THE SALE RECORD (Add customerName and status)
+        // ================================================================
+        // 🔥 THE ZERO-STOCK FIREWALL
+        // Check all physical items BEFORE creating the receipt!
+        // ================================================================
+        for (let item of items) {
+            const checkProduct = await Product.findById(item.product);
+            if (checkProduct && checkProduct.isPhysical) {
+                // We use currentStock based on how your refund logic is written
+                const availableStock = checkProduct.currentStock || 0; 
+                if (availableStock < item.quantity) {
+                    return res.status(400).json({ 
+                        success: false, 
+                        message: `Transaction Failed: Insufficient stock for ${checkProduct.name}. Only ${availableStock} left.` 
+                    });
+                }
+            }
+        }
+        // ================================================================
+
         // 3. CREATE THE SALE RECORD
         const sale = await Sale.create({
             receiptNumber, 
@@ -61,6 +78,11 @@ exports.processCheckout = async (req, res) => {
             const productInfo = await Product.findById(item.product);
             if (productInfo && productInfo.isPhysical) {
                 if (!warehouseId) throw new Error("Warehouse ID is required for physical goods.");
+                
+                // 👉 THE FIX: Actually subtract the stock from the Master Data!
+                productInfo.currentStock -= item.quantity;
+                await productInfo.save();
+
                 await StockMovement.create({
                     product: item.product, warehouse: warehouseId, type: 'OUT',
                     quantity: item.quantity, reference: `POS Sale: ${orNumber}`, processedBy: req.user.id

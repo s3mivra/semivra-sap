@@ -15,13 +15,15 @@ const PurchaseOrderSchema = new mongoose.Schema({
     
     status: { 
         type: String, 
-        enum: ['Draft', 'Ordered', 'Received', 'Cancelled'], 
+        enum: ['Draft', 'Ordered', 'Received', 'Cancelled', 'Paid'], 
         default: 'Ordered' 
     },
     
     // When the truck actually arrives
     receivedAt: { type: Date },
     receivingWarehouse: { type: mongoose.Schema.Types.ObjectId, ref: 'Warehouse' },
+    paymentMethod: { type: String, enum: ['Cash', 'Terms'], default: 'Cash' },
+    balance: { type: Number },
     
     createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true }
 }, { timestamps: true });

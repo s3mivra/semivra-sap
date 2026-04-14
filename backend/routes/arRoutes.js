@@ -1,14 +1,16 @@
 const express = require('express');
-const { getUnpaidSales, receivePayment } = require('../controllers/arController');
-const { protect, authorize } = require('../middleware/auth');
-const auditLog = require('../middleware/auditLog');
-
 const router = express.Router();
+const arController = require('../controllers/arController');
+const { protect, authorize } = require('../middleware/auth'); 
 
 router.use(protect);
 router.use(authorize('Admin', 'Super Admin'));
 
-router.get('/unpaid', getUnpaidSales);
-router.post('/:id/pay', auditLog('AR_PAYMENT_RECEIVED'), receivePayment);
+// Your existing payment routes
+router.get('/unpaid', arController.getUnpaidSales);
+router.post('/pay/:id', arController.receivePayment);
+
+// 👇 The new Aging route we just added 👇
+router.get('/aging', arController.getARAgingReport);
 
 module.exports = router;
