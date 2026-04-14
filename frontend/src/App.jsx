@@ -45,7 +45,41 @@ import AdminReports from './components/AdminReports';
 import AdminAnalytics from './components/AdminAnalytics';
 import AdminPayroll from './pages/AdminPayroll'; // Optional/Pending module
 
+import AdminManufacturing from './components/AdminManufacturing';
 
+class ErrorBoundary extends React.Component {
+    constructor(props) {
+        super(props);
+        this.state = { hasError: false, errorMsg: '' };
+    }
+
+    static getDerivedStateFromError(error) {
+        return { hasError: true };
+    }
+
+    componentDidCatch(error, errorInfo) {
+        console.error("Critical UI Crash Caught:", error, errorInfo);
+        this.setState({ errorMsg: error.message });
+    }
+
+    render() {
+        if (this.state.hasError) {
+            return (
+                <div className="flex flex-col justify-center items-center h-screen bg-slate-50 text-slate-800">
+                    <h2 className="text-3xl font-bold mb-4 text-red-600">Something went wrong.</h2>
+                    <p className="text-slate-600 mb-6">A component crashed unexpectedly.</p>
+                    <button 
+                        onClick={() => window.location.href = '/'}
+                        className="px-6 py-2 bg-indigo-600 text-white rounded shadow hover:bg-indigo-700"
+                    >
+                        Return to Dashboard
+                    </button>
+                </div>
+            );
+        }
+        return this.props.children;
+    }
+}
 // ==========================================
 // 🛡️ THE ENTERPRISE BOUNCER (Protected Route)
 // ==========================================
@@ -80,31 +114,51 @@ const ProtectedRoute = ({ children, requiredPerm, requireSuperAdmin }) => {
 // 🚀 MAIN ROUTING COMPONENT
 // ==========================================
 const AppContent = () => {
+    // 1. Add the new isVerifying state alongside your existing state
     const [isActivated, setIsActivated] = useState(!!localStorage.getItem('license_key'));
-    
-    // 🔑 SECURE BOOT: Verify Hardware & License Key
+    const [isVerifying, setIsVerifying] = useState(true); // 💡 NEW: The Gatekeeper state
+
     useEffect(() => {
         const verifyExistingLicense = async () => {
+            setIsVerifying(true); // 🔒 Lock the screen
+            
             const key = localStorage.getItem('license_key');
             const hwid = localStorage.getItem('license_hwid');
             
             if (key && hwid) {
                 try {
+                    // If this succeeds, the interceptor handles the rest
                     await api.post('/licenses/verify', { licenseKey: key, hwid });
+                    setIsActivated(true);
                 } catch (err) {
                     console.error("License validation failed on boot.");
-                    localStorage.removeItem('license_key');
-                    localStorage.removeItem('license_hwid');
+                    // Note: The api.jsx interceptor we wrote already clears the localStorage for us on 402/403
                     setIsActivated(false);
                 }
+            } else {
+                setIsActivated(false);
             }
+            
+            setIsVerifying(false); // 🔓 Unlock the screen only after the API replies
         };
+        
         verifyExistingLicense();
     }, []);
 
-    // 🛑 LICENSE GATE: Block access to the entire app if unverified
+    // 💡 NEW: Render a loading screen while verifying, BEFORE checking routes
+    if (isVerifying) {
+        return (
+            <div className="flex flex-col justify-center items-center h-screen bg-slate-50">
+                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600 mb-4"></div>
+                <h2 className="text-slate-600 font-semibold tracking-wide">Initializing Semivra SAP...</h2>
+                <p className="text-xs text-slate-400 mt-2">Verifying Enterprise License</p>
+            </div>
+        );
+    }
+
+    // Existing license check
     if (!isActivated) {
-        return <LicenseGate onValidated={() => setIsActivated(true)} />;
+        return <LicenseGate onActivated={() => setIsActivated(true)} />;
     }
 
     return (
@@ -161,6 +215,8 @@ const AppContent = () => {
                     <Route path="/admin/financials" element={<ProtectedRoute requiredPerm="View Reports"><AdminFinancialReports /></ProtectedRoute>} />
                     <Route path="/admin/reports" element={<ProtectedRoute requiredPerm="View Reports"><AdminReports /></ProtectedRoute>} />
 
+                    <Route path="/admin/manufacturing" element={<ProtectedRoute requiredPerm="Manage Inventory"><AdminManufacturing /></ProtectedRoute>} />
+                    
                     {/* CATCH-ALL */}
                     <Route path="*" element={<Navigate to="/" replace />} />
                 </Routes>
@@ -176,7 +232,10 @@ function App() {
     return (
         <AuthProvider>
             <BrowserRouter>
-                <AppContent />
+                {/* 👇 Wrap the content inside the Error Boundary 👇 */}
+                <ErrorBoundary>
+                    <AppContent />
+                </ErrorBoundary>
             </BrowserRouter>
         </AuthProvider>
     );

@@ -1,5 +1,14 @@
 import api from './api';
 
+export const getUnreconciledCash = async () => {
+    const response = await api.get('/reconciliation/unreconciled');
+    return response.data;
+};
+
+export const reconcileTransactions = async (payload) => {
+    const response = await api.post('/reconciliation/clear', payload);
+    return response.data;
+};
 // Inside services/accountingService.js
 
 // Clean, simple, and now automatically division-aware!

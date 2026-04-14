@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import axios from 'axios';
+import api from '../services/api'; // 🛡️ CRITICAL FIX: Use the central API with tenant interceptors
 import { Briefcase, Calendar, DollarSign, CheckCircle, Loader } from 'lucide-react';
 
 const AdminPayroll = () => {
@@ -9,19 +9,13 @@ const AdminPayroll = () => {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
 
-    const api = axios.create({
-        baseURL: 'http://localhost:5004/api',
-        headers: {
-            Authorization: `Bearer ${localStorage.getItem('token')}` 
-        }
-    });
-
     const fetchPayrollRuns = async () => {
         try {
+            // The api interceptor automatically attaches the JWT and x-division-id
             const { data } = await api.get('/payroll');
-            setPayrollRuns(data.data);
+            setPayrollRuns(Array.isArray(data.data) ? data.data : []);
         } catch (err) {
-            setError(err.response?.data?.message || 'Failed to fetch payroll history');
+            setError(err.response?.data?.message || err.response?.data?.error || 'Failed to fetch payroll history');
         }
     };
 
@@ -39,7 +33,7 @@ const AdminPayroll = () => {
             setPeriodStart('');
             setPeriodEnd('');
         } catch (err) {
-            setError(err.response?.data?.message || 'Failed to draft payroll. Ensure employees have compensation data.');
+            setError(err.response?.data?.message || err.response?.data?.error || 'Failed to draft payroll. Ensure employees have compensation data.');
         } finally {
             setLoading(false);
         }
@@ -54,7 +48,7 @@ const AdminPayroll = () => {
             await api.post(`/payroll/${id}/approve`);
             fetchPayrollRuns();
         } catch (err) {
-            setError(err.response?.data?.message || 'Failed to approve payroll.');
+            setError(err.response?.data?.message || err.response?.data?.error || 'Failed to approve payroll.');
         } finally {
             setLoading(false);
         }
@@ -163,7 +157,7 @@ const AdminPayroll = () => {
                                                 </span>
                                             </td>
                                             <td className="py-3 px-4">
-                                                {run.status === 'Draft' && (
+                                                {run.status === 'Draft' ? (
                                                     <button 
                                                         onClick={() => handleApproveAndPay(run._id)}
                                                         disabled={loading}
@@ -171,8 +165,7 @@ const AdminPayroll = () => {
                                                     >
                                                         Approve & Pay
                                                     </button>
-                                                )}
-                                                {run.status === 'Paid' && (
+                                                ) : (
                                                     <span className="text-sm font-medium text-slate-400">Locked</span>
                                                 )}
                                             </td>

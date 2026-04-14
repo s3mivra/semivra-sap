@@ -15,6 +15,7 @@ const JournalLineSchema = new mongoose.Schema({
 });
 
 const JournalEntrySchema = new mongoose.Schema({
+    division: { type: mongoose.Schema.Types.ObjectId, ref: 'Division', required: true },
     entryNumber: { type: String, required: true, unique: true }, // e.g., JRN-2026-04-0001
     
     // 📅 NEW: Date Separation 

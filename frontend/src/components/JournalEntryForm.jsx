@@ -1,11 +1,14 @@
 import React, { useState, useEffect } from 'react';
-import api from '../services/api'; // Using your new global interceptor!
+import api from '../services/api'; 
 
 const JournalEntryForm = () => {
     // 1. Core State
     const [accounts, setAccounts] = useState([]);
     const [loading, setLoading] = useState(false);
     const [message, setMessage] = useState({ type: '', text: '' });
+    
+    // 💡 NEW: Accrual Engine State
+    const [isAccrual, setIsAccrual] = useState(false);
 
     // 2. Form State
     const [header, setHeader] = useState({
@@ -28,9 +31,7 @@ const JournalEntryForm = () => {
     useEffect(() => {
         const fetchAccounts = async () => {
             try {
-                // Adjust this endpoint if your route is different!
                 const res = await api.get('/accounting/accounts');
-                // Only show active accounts in the dropdown
                 setAccounts(res.data.data.filter(acc => acc.isActive !== false));
             } catch (err) {
                 setMessage({ type: 'error', text: 'Failed to load Chart of Accounts.' });
@@ -100,16 +101,34 @@ const JournalEntryForm = () => {
 
         setLoading(true);
         try {
-            const payload = { ...header, lines: validLines };
-            await api.post('/accounting/journals', payload);
+            // 💡 NEW: Dynamically shape payload for the Accrual Controller
+            const period = header.documentDate.substring(0, 7); // Extracts 'YYYY-MM'
             
-            setMessage({ type: 'success', text: 'Journal Entry posted successfully! The ledger has been updated.' });
+            const payload = { 
+                ...header, 
+                entryNumber: header.sourceDocument, // Map for backend
+                postingDate: header.documentDate,   // Map for backend
+                period,
+                lines: validLines 
+            };
+
+            // 💡 NEW: Route dynamically based on the Accrual toggle
+            const endpoint = isAccrual ? '/journal/accrual' : '/accounting/journals';
+            await api.post(endpoint, payload);
+            
+            setMessage({ 
+                type: 'success', 
+                text: isAccrual 
+                    ? 'Accrual successfully posted and reversing entry queued for next month!' 
+                    : 'Journal Entry posted successfully! The ledger has been updated.' 
+            });
             
             // Reset form
             setHeader({ ...header, description: '', sourceDocument: '' });
+            setIsAccrual(false);
             setLines([{ account: '', debit: '', credit: '', memo: '' }, { account: '', debit: '', credit: '', memo: '' }]);
         } catch (err) {
-            setMessage({ type: 'error', text: err.response?.data?.message || 'Failed to post entry.' });
+            setMessage({ type: 'error', text: err.response?.data?.error || err.response?.data?.message || 'Failed to post entry.' });
         } finally {
             setLoading(false);
         }
@@ -122,9 +141,25 @@ const JournalEntryForm = () => {
             <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
                 
                 {/* Header Section */}
-                <div className="bg-slate-50 border-b border-slate-200 p-6">
-                    <h2 className="text-xl font-bold text-slate-800">Record Journal Entry</h2>
-                    <p className="text-slate-500 text-sm mt-1">Manual double-entry posting to the General Ledger.</p>
+                <div className="bg-slate-50 border-b border-slate-200 p-6 flex justify-between items-start">
+                    <div>
+                        <h2 className="text-xl font-bold text-slate-800">Record Journal Entry</h2>
+                        <p className="text-slate-500 text-sm mt-1">Manual double-entry posting to the General Ledger.</p>
+                    </div>
+                    
+                    {/* 💡 NEW: ACCRUAL TOGGLE UI */}
+                    <div className={`flex items-center gap-3 border p-3 rounded-lg transition-colors ${isAccrual ? 'bg-indigo-50 border-indigo-200' : 'bg-white border-slate-200'}`}>
+                        <input 
+                            type="checkbox" 
+                            id="accrualToggle" 
+                            checked={isAccrual} 
+                            onChange={(e) => setIsAccrual(e.target.checked)}
+                            className="w-5 h-5 text-indigo-600 rounded cursor-pointer border-slate-300 focus:ring-indigo-500"
+                        />
+                        <label htmlFor="accrualToggle" className={`text-sm font-bold cursor-pointer select-none ${isAccrual ? 'text-indigo-900' : 'text-slate-600'}`}>
+                            Is Accrual (Auto-Reverse Next Month)
+                        </label>
+                    </div>
                 </div>
 
                 <form onSubmit={handleSubmit} className="p-6">
@@ -183,7 +218,7 @@ const JournalEntryForm = () => {
                                                 required
                                                 value={line.account}
                                                 onChange={(e) => handleLineChange(index, 'account', e.target.value)}
-                                                className="w-full border border-slate-300 rounded px-3 py-2 text-slate-700 focus:ring-indigo-500 focus:border-indigo-500"
+                                                className="w-full border border-slate-300 rounded px-3 py-2 text-slate-700 focus:ring-indigo-500 focus:border-indigo-500 bg-white"
                                             >
                                                 <option value="">-- Select Account --</option>
                                                 {accounts.map(acc => (
@@ -209,7 +244,8 @@ const JournalEntryForm = () => {
                                                 placeholder="0.00"
                                                 value={line.debit}
                                                 onChange={(e) => handleLineChange(index, 'debit', e.target.value)}
-                                                className="w-full border border-slate-300 rounded px-3 py-2 text-right focus:ring-indigo-500 focus:border-indigo-500"
+                                                disabled={line.credit > 0}
+                                                className="w-full border border-slate-300 rounded px-3 py-2 text-right focus:ring-indigo-500 focus:border-indigo-500 disabled:bg-slate-100"
                                             />
                                         </td>
                                         <td className="p-2">
@@ -219,7 +255,8 @@ const JournalEntryForm = () => {
                                                 placeholder="0.00"
                                                 value={line.credit}
                                                 onChange={(e) => handleLineChange(index, 'credit', e.target.value)}
-                                                className="w-full border border-slate-300 rounded px-3 py-2 text-right focus:ring-indigo-500 focus:border-indigo-500"
+                                                disabled={line.debit > 0}
+                                                className="w-full border border-slate-300 rounded px-3 py-2 text-right focus:ring-indigo-500 focus:border-indigo-500 disabled:bg-slate-100"
                                             />
                                         </td>
                                         <td className="p-2 text-center">
@@ -227,7 +264,7 @@ const JournalEntryForm = () => {
                                                 type="button" 
                                                 onClick={() => handleRemoveLine(index)}
                                                 disabled={lines.length <= 2}
-                                                className="text-slate-400 hover:text-red-500 disabled:opacity-30 disabled:hover:text-slate-400 transition-colors"
+                                                className="text-slate-400 hover:text-red-500 disabled:opacity-30 disabled:hover:text-slate-400 transition-colors font-bold"
                                             >
                                                 ✕
                                             </button>
@@ -287,11 +324,11 @@ const JournalEntryForm = () => {
                             disabled={!isBalanced || loading}
                             className={`px-8 py-3 rounded-lg font-bold text-white transition-all shadow-sm ${
                                 isBalanced && !loading 
-                                ? 'bg-indigo-600 hover:bg-indigo-700 shadow-indigo-200' 
+                                ? (isAccrual ? 'bg-indigo-600 hover:bg-indigo-700 shadow-indigo-200' : 'bg-slate-900 hover:bg-slate-800')
                                 : 'bg-slate-300 cursor-not-allowed'
                             }`}
                         >
-                            {loading ? 'Posting to Ledger...' : 'Post Journal Entry'}
+                            {loading ? 'Posting to Ledger...' : (isAccrual ? 'Post Accrual & Queue Reversal' : 'Post Journal Entry')}
                         </button>
                     </div>
 

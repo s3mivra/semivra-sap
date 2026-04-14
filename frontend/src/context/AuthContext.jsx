@@ -30,15 +30,20 @@ export const AuthProvider = ({ children }) => {
             const { data } = await api.post('/auth/login', { email, password });
             
             localStorage.setItem('token', data.token);
+            localStorage.setItem('user', JSON.stringify(data.user));
             
-            // FIX 2: Save the user object (and their Role!) to Local Storage
-            localStorage.setItem('user', JSON.stringify(data.user)); 
+            // 🔒 CRITICAL FIX: Lock in the active division for normal users
+            // Super Admins (level 100) will select this via the Navbar later.
+            if (data.user.division && data.user.role?.level !== 100) {
+                // Handle populated object vs raw ObjectId string
+                const divisionId = typeof data.user.division === 'object' 
+                    ? data.user.division._id 
+                    : data.user.division;
+                localStorage.setItem('activeDivision', divisionId);
+            }
             
             setUser(data.user);
-
-            // 👇 THE MISSING PIECE: Return the user so Login.jsx knows who just logged in! 👇
-            return data.user; 
-            
+            return data.user;
         } catch (error) {
             console.error("Login failed:", error.response?.data?.message || error.message);
             throw error;

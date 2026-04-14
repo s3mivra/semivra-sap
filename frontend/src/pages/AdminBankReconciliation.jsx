@@ -1,201 +1,208 @@
 import React, { useState, useEffect } from 'react';
-import api from '../services/api';
-import { CheckSquare, Square, AlertCircle, RefreshCw } from 'lucide-react';
+import { getUnreconciledCash, reconcileTransactions } from '../services/accountingService';
+import { CheckCircle, RefreshCw, AlertCircle, Search, DollarSign } from 'lucide-react';
 
 const AdminBankReconciliation = () => {
+    const [data, setData] = useState({ bookBalance: 0, unclearedTransactions: [] });
     const [transactions, setTransactions] = useState([]);
-    const [selectedIds, setSelectedIds] = useState([]);
     const [loading, setLoading] = useState(true);
-    const [processing, setProcessing] = useState(false);
-    const [message, setMessage] = useState({ type: '', text: '' });
-    
-    // Target bank balance input (for the accountant to check their math)
-    const [targetBankBalance, setTargetBankBalance] = useState('');
+    const [status, setStatus] = useState({ type: '', message: '' });
+    const [searchTerm, setSearchTerm] = useState('');
+    const [statementBalance, setStatementBalance] = useState('');
+    const [statementDate, setStatementDate] = useState(new Date().toISOString().split('T')[0]);
+    const [selectedIds, setSelectedIds] = useState(new Set());
+    const [isSubmitting, setIsSubmitting] = useState(false);
 
-    const fetchUnreconciled = async () => {
-        setLoading(true);
+    const loadData = async () => {
         try {
-            const res = await api.get('/reconciliation/unreconciled');
-            setTransactions(res.data.data || []);
-        } catch (err) {
-            setMessage({ type: 'error', text: 'Failed to fetch unreconciled transactions.' });
+            setLoading(true);
+            const res = await getUnreconciledCash();
+            setData(res); 
+            setSelectedIds(new Set());
+        } catch (error) {
+            console.error("Full API Error:", error); // 👈 Logs the real error to your browser console
+            
+            // 🛡️ Update this line to catch the exact backend message
+            setStatus({ 
+                type: 'error', 
+                message: error.response?.data?.message || error.response?.data?.error || error.message || 'Failed to load reconciliation data.' 
+            });
         } finally {
             setLoading(false);
         }
     };
 
-    useEffect(() => {
-        fetchUnreconciled();
-    }, []);
+    useEffect(() => { loadData(); }, []);
 
-    const toggleSelection = (id) => {
-        if (selectedIds.includes(id)) {
-            setSelectedIds(selectedIds.filter(selectedId => selectedId !== id));
+    // 🧮 Toggle individual checkboxes
+    const handleSelect = (lineId) => {
+        const newSelected = new Set(selectedIds);
+        if (newSelected.has(lineId)) {
+            newSelected.delete(lineId);
         } else {
-            setSelectedIds([...selectedIds, id]);
+            newSelected.add(lineId);
+        }
+        setSelectedIds(newSelected);
+    };
+
+    // 🧮 Select or Deselect ALL currently visible transactions
+    const handleSelectAll = (e) => {
+        if (e.target.checked) {
+            const allIds = filteredTransactions.map(t => t.lineId);
+            setSelectedIds(new Set(allIds));
+        } else {
+            setSelectedIds(new Set());
         }
     };
 
+    // 🚀 Submit to Backend
     const handleReconcile = async () => {
-        if (selectedIds.length === 0) return;
-        
-        setProcessing(true);
-        setMessage({ type: '', text: '' });
-        
+        if (selectedIds.size === 0) return;
+        if (!window.confirm(`Are you sure you want to lock ${selectedIds.size} transaction(s) as Reconciled? This cannot easily be undone.`)) return;
+
         try {
-            await api.post('/reconciliation/match', { matchedLineIds: selectedIds });
-            setMessage({ type: 'success', text: `Successfully reconciled ${selectedIds.length} transactions.` });
-            setSelectedIds([]);
-            fetchUnreconciled(); // Refresh the list
-        } catch (err) {
-            setMessage({ type: 'error', text: err.response?.data?.message || 'Failed to reconcile.' });
-        } finally {
-            setProcessing(false);
+            setStatus({ type: 'info', message: 'Reconciling with the ledger...' });
+            await reconcileBulkTransactions(Array.from(selectedIds));
+            setStatus({ type: 'success', message: `Successfully reconciled ${selectedIds.size} transactions!` });
+            setSelectedIds(new Set()); // Clear selections
+            loadData(); // Refresh the table
+        } catch (error) {
+            setStatus({ type: 'error', message: error.response?.data?.message || 'Reconciliation failed.' });
         }
     };
 
-    const formatMoney = (amount) => `₱${(amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    // 🔍 Search Filter
+    const filteredTransactions = transactions.filter(t => 
+        t.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        t.entryNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        t.amount.toString().includes(searchTerm)
+    );
 
-    // Calculate the total of currently selected items
-    const selectedTotal = transactions
-        .filter(t => selectedIds.includes(t.lineId))
-        .reduce((sum, t) => t.type === 'Deposit' ? sum + t.amount : sum - t.amount, 0);
+    // 💰 Dynamic Math for the Accountant
+    const selectedTotal = Array.from(selectedIds).reduce((sum, id) => {
+        const txn = transactions.find(t => t.lineId === id);
+        if (!txn) return sum;
+        // Add deposits, subtract withdrawals
+        return sum + (txn.type === 'Deposit' ? txn.amount : -txn.amount);
+    }, 0);
 
     return (
-        <div className="p-6 max-w-6xl mx-auto">
-            <div className="bg-white border border-slate-200 p-8 rounded-xl shadow-sm mb-8 flex justify-between items-end">
+        <div className="p-6 max-w-7xl mx-auto space-y-6">
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                 <div>
-                    <h1 className="text-3xl font-light text-slate-900 mb-1">Bank Reconciliation</h1>
-                    <p className="text-slate-500 text-sm">Match ledger entries against your physical bank statement.</p>
+                    <h1 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
+                        <RefreshCw className="w-6 h-6 text-indigo-600" /> Bank Reconciliation
+                    </h1>
+                    <p className="text-slate-500 text-sm mt-1">Match ERP cash entries with your physical bank statements.</p>
                 </div>
-                <div className="w-64">
-                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-1">Target Bank Balance</label>
-                    <input 
-                        type="number" 
-                        placeholder="Enter statement balance"
-                        value={targetBankBalance}
-                        onChange={(e) => setTargetBankBalance(e.target.value)}
-                        className="w-full border border-slate-300 rounded-lg px-4 py-2 font-medium focus:ring-2 focus:ring-indigo-500 outline-none"
-                    />
+                
+                {/* The "Sticky" Dashboard for the Accountant */}
+                <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex items-center gap-6">
+                    <div>
+                        <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Selected Lines</p>
+                        <p className="text-lg font-bold text-slate-700">{selectedIds.size}</p>
+                    </div>
+                    <div className="h-8 w-px bg-slate-200"></div>
+                    <div>
+                        <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Net Selected Amount</p>
+                        <p className={`text-lg font-bold ${selectedTotal >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+                            ₱ {selectedTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </p>
+                    </div>
+                    <button 
+                        onClick={handleReconcile}
+                        disabled={selectedIds.size === 0}
+                        className={`ml-4 px-6 py-2 rounded-lg font-bold transition-all flex items-center gap-2 ${selectedIds.size > 0 ? 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-md' : 'bg-slate-100 text-slate-400 cursor-not-allowed'}`}
+                    >
+                        <CheckCircle className="w-4 h-4" /> Reconcile Match
+                    </button>
                 </div>
             </div>
 
-            {message.text && (
-                <div className={`p-4 mb-6 rounded-lg text-sm font-medium flex items-center gap-2 ${message.type === 'error' ? 'bg-red-50 text-red-700 border border-red-200' : 'bg-emerald-50 text-emerald-700 border border-emerald-200'}`}>
-                    <AlertCircle className="w-4 h-4" />
-                    {message.text}
+            {status.message && (
+                <div className={`p-4 rounded-lg font-medium text-sm flex items-center gap-2 ${status.type === 'success' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : status.type === 'error' ? 'bg-rose-50 text-rose-700 border border-rose-200' : 'bg-blue-50 text-blue-700 border border-blue-200'}`}>
+                    <AlertCircle className="w-4 h-4" /> {status.message}
                 </div>
             )}
 
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                
-                {/* LEFT: Transaction List */}
-                <div className="lg:col-span-2 bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden flex flex-col h-[600px]">
-                    <div className="bg-slate-50 border-b border-slate-200 p-4 flex justify-between items-center">
-                        <h2 className="font-bold text-slate-800">Unreconciled Ledger Cash</h2>
-                        <button onClick={fetchUnreconciled} className="text-slate-400 hover:text-indigo-600 transition-colors">
-                            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-                        </button>
+            <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                <div className="p-4 border-b border-slate-200 bg-slate-50 flex justify-between items-center">
+                    <div className="relative w-72">
+                        <Search className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
+                        <input 
+                            type="text" 
+                            placeholder="Search descriptions, amounts, refs..." 
+                            value={searchTerm}
+                            onChange={(e) => setSearchTerm(e.target.value)}
+                            className="w-full pl-9 pr-4 py-2 text-sm border border-slate-300 rounded-md focus:ring-2 focus:ring-indigo-500 outline-none"
+                        />
                     </div>
-                    
-                    <div className="overflow-y-auto flex-grow p-0">
-                        {loading ? (
-                            <div className="flex justify-center items-center h-full text-slate-400">Loading ledger data...</div>
-                        ) : transactions.length === 0 ? (
-                            <div className="flex flex-col justify-center items-center h-full text-slate-400">
-                                <CheckSquare className="w-12 h-12 mb-2 opacity-20" />
-                                <p>All caught up! No pending cash transactions.</p>
-                            </div>
-                        ) : (
-                            <table className="w-full text-sm text-left">
-                                <thead className="bg-white sticky top-0 border-b border-slate-100 shadow-sm z-10 text-slate-500">
-                                    <tr>
-                                        <th className="p-3 w-12 text-center"></th>
-                                        <th className="p-3">Date & Ref</th>
-                                        <th className="p-3">Description</th>
-                                        <th className="p-3 text-right">Withdrawal</th>
-                                        <th className="p-3 text-right">Deposit</th>
+                </div>
+
+                <div className="overflow-x-auto">
+                    <table className="w-full text-left text-sm">
+                        <thead className="bg-slate-800 text-white">
+                            <tr>
+                                <th className="p-4 w-12 text-center">
+                                    <input 
+                                        type="checkbox" 
+                                        className="rounded border-slate-600"
+                                        onChange={handleSelectAll}
+                                        checked={filteredTransactions.length > 0 && selectedIds.size === filteredTransactions.length}
+                                    />
+                                </th>
+                                <th className="p-4 font-bold">Date</th>
+                                <th className="p-4 font-bold">Document Ref</th>
+                                <th className="p-4 font-bold">Bank Account</th>
+                                <th className="p-4 font-bold">Description</th>
+                                <th className="p-4 font-bold text-right">Deposit (IN)</th>
+                                <th className="p-4 font-bold text-right">Withdrawal (OUT)</th>
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                            {loading ? (
+                                <tr><td colSpan="7" className="p-8 text-center text-slate-500">Loading ledger data...</td></tr>
+                            ) : filteredTransactions.length === 0 ? (
+                                <tr><td colSpan="7" className="p-8 text-center text-slate-500 font-medium">🎉 All cash lines are currently reconciled!</td></tr>
+                            ) : (
+                                filteredTransactions.map((txn) => (
+                                    <tr 
+                                        key={txn.lineId} 
+                                        onClick={() => handleSelect(txn.lineId)}
+                                        className={`cursor-pointer transition-colors ${selectedIds.has(txn.lineId) ? 'bg-indigo-50/50' : 'hover:bg-slate-50'}`}
+                                    >
+                                        <td className="p-4 text-center">
+                                            <input 
+                                                type="checkbox" 
+                                                className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                                                checked={selectedIds.has(txn.lineId)}
+                                                onChange={() => {}} // Handled by tr onClick
+                                            />
+                                        </td>
+                                        <td className="p-4 text-slate-600">{new Date(txn.date).toLocaleDateString()}</td>
+                                        <td className="p-4 font-medium text-slate-900">{txn.entryNumber}</td>
+                                        <td className="p-4">
+                                            <span className="px-2 py-1 bg-slate-100 text-slate-600 text-xs rounded border border-slate-200">
+                                                {txn.accountName}
+                                            </span>
+                                        </td>
+                                        <td className="p-4 text-slate-600">{txn.description}</td>
+                                        
+                                        {/* Deposits (Debits to Cash) */}
+                                        <td className="p-4 text-right font-bold text-emerald-600">
+                                            {txn.type === 'Deposit' ? `₱ ${txn.amount.toLocaleString(undefined, {minimumFractionDigits: 2})}` : '-'}
+                                        </td>
+                                        
+                                        {/* Withdrawals (Credits to Cash) */}
+                                        <td className="p-4 text-right font-bold text-rose-600">
+                                            {txn.type === 'Withdrawal' ? `₱ ${txn.amount.toLocaleString(undefined, {minimumFractionDigits: 2})}` : '-'}
+                                        </td>
                                     </tr>
-                                </thead>
-                                <tbody className="divide-y divide-slate-50">
-                                    {transactions.map((t) => {
-                                        const isSelected = selectedIds.includes(t.lineId);
-                                        return (
-                                            <tr 
-                                                key={t.lineId} 
-                                                onClick={() => toggleSelection(t.lineId)}
-                                                className={`cursor-pointer transition-colors ${isSelected ? 'bg-indigo-50/50' : 'hover:bg-slate-50'}`}
-                                            >
-                                                <td className="p-3 text-center">
-                                                    {isSelected ? (
-                                                        <CheckSquare className="w-5 h-5 text-indigo-600 mx-auto" />
-                                                    ) : (
-                                                        <Square className="w-5 h-5 text-slate-300 mx-auto" />
-                                                    )}
-                                                </td>
-                                                <td className="p-3">
-                                                    <div className="font-medium text-slate-700">{new Date(t.date).toLocaleDateString()}</div>
-                                                    <div className="text-xs text-slate-400">{t.entryNumber}</div>
-                                                </td>
-                                                <td className="p-3 text-slate-600">{t.description}</td>
-                                                <td className="p-3 text-right text-slate-600">
-                                                    {t.type === 'Withdrawal' ? formatMoney(t.amount) : '-'}
-                                                </td>
-                                                <td className="p-3 text-right font-medium text-slate-800">
-                                                    {t.type === 'Deposit' ? formatMoney(t.amount) : '-'}
-                                                </td>
-                                            </tr>
-                                        );
-                                    })}
-                                </tbody>
-                            </table>
-                        )}
-                    </div>
+                                ))
+                            )}
+                        </tbody>
+                    </table>
                 </div>
-
-                {/* RIGHT: Math & Submit Panel */}
-                <div className="bg-slate-800 rounded-xl shadow-sm border border-slate-700 flex flex-col p-6 text-white h-fit sticky top-24">
-                    <h3 className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-6 border-b border-slate-700 pb-2">Reconciliation Summary</h3>
-                    
-                    <div className="space-y-4 mb-8">
-                        <div className="flex justify-between items-center">
-                            <span className="text-slate-300 text-sm">Transactions Selected</span>
-                            <span className="font-bold text-lg">{selectedIds.length}</span>
-                        </div>
-                        <div className="flex justify-between items-center">
-                            <span className="text-slate-300 text-sm">Net Cleared Amount</span>
-                            <span className={`font-bold text-xl ${selectedTotal >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                                {formatMoney(selectedTotal)}
-                            </span>
-                        </div>
-                        
-                        {targetBankBalance && (
-                            <div className="mt-6 pt-4 border-t border-slate-700 bg-slate-900/50 p-4 rounded-lg">
-                                <div className="flex justify-between items-center mb-1">
-                                    <span className="text-slate-400 text-xs font-bold uppercase">Statement Match</span>
-                                    {Math.abs(Number(targetBankBalance) - selectedTotal) < 0.01 ? (
-                                        <span className="text-emerald-400 text-xs font-bold uppercase flex items-center gap-1"><CheckCircle2 className="w-3 h-3"/> Balanced</span>
-                                    ) : (
-                                        <span className="text-amber-400 text-xs font-bold uppercase">Difference</span>
-                                    )}
-                                </div>
-                                <div className="text-right font-black text-2xl">
-                                    {formatMoney(Math.abs(Number(targetBankBalance) - selectedTotal))}
-                                </div>
-                            </div>
-                        )}
-                    </div>
-
-                    <button 
-                        onClick={handleReconcile}
-                        disabled={selectedIds.length === 0 || processing}
-                        className="mt-auto w-full py-4 rounded-lg font-bold text-white transition-all disabled:opacity-50 disabled:cursor-not-allowed bg-indigo-500 hover:bg-indigo-400"
-                    >
-                        {processing ? 'Locking Ledger...' : 'Mark as Reconciled'}
-                    </button>
-                    <p className="text-center text-[10px] text-slate-500 mt-3">Reconciled transactions cannot be voided.</p>
-                </div>
-
             </div>
         </div>
     );

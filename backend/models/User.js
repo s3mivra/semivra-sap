@@ -6,10 +6,15 @@ const userSchema = new mongoose.Schema({
     email: { type: String, required: true, unique: true },
     password: { type: String, required: true },
     
+
+    currentSessionToken: {
+        type: String,
+        default: null
+    },
     // 👇 THE NEW ADVANCED ACCESS CONTROL 👇
     // Add this inside your UserSchema
     // ✅ THE NEW ENTERPRISE WAY
-role: { type: mongoose.Schema.Types.ObjectId, ref: 'Role', required: true },
+    role: { type: mongoose.Schema.Types.ObjectId, ref: 'Role', required: true },
     
     // 👇 NEW: Lock the user into a specific data silo
     division: { type: mongoose.Schema.Types.ObjectId, ref: 'Division', required: false},

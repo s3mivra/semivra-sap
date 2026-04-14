@@ -55,7 +55,7 @@ const divisionRoutes = require('./routes/divisionRoutes');
 const customerRoutes = require('./routes/customerRoutes');
 const periodRoutes = require('./routes/periodRoutes');
 const roleRoutes = require('./routes/roleRoutes');
-
+const manufacturingRoutes = require('./routes/manufacturingRoutes');
 // 🚨 2. THE AIRLOCK (UNSHIELDED ROUTES) 🚨
 // Mount these BEFORE the shield so users can log in and activate licenses!
 app.use('/api/licenses', licenseRoutes);
@@ -91,6 +91,7 @@ app.use('/api/divisions', divisionRoutes);
 app.use('/api/customers', customerRoutes);
 app.use('/api/periods', periodRoutes);
 app.use('/api/roles', roleRoutes);
+app.use('/api/manufacturing', manufacturingRoutes);
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));

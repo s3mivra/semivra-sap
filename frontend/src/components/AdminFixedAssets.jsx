@@ -1,236 +1,200 @@
 import React, { useState, useEffect } from 'react';
-import api from '../services/api';
-import { Monitor, TrendingDown, PlusCircle, AlertCircle, PlayCircle, CheckCircle2 } from 'lucide-react';
+import { fetchAssets, registerAsset, runDepreciation } from '../services/fixedAssetService';
+import { Monitor, CheckCircle, AlertTriangle, Plus, Settings } from 'lucide-react';
 
 const AdminFixedAssets = () => {
     const [assets, setAssets] = useState([]);
-    const [accounts, setAccounts] = useState([]);
     const [loading, setLoading] = useState(true);
-    const [depreciating, setDepreciating] = useState(false);
-    const [message, setMessage] = useState({ type: '', text: '' });
+    const [status, setStatus] = useState({ type: '', message: '' });
+    const [isProcessing, setIsProcessing] = useState(false);
 
-    const [formData, setFormData] = useState({
+    // Form State
+    const [form, setForm] = useState({
         assetName: '',
-        purchaseDate: new Date().toISOString().split('T')[0],
-        purchaseCost: '',
+        purchaseDate: '',
+        purchasePrice: '',
         salvageValue: '0',
-        usefulLifeMonths: '36',
-        assetAccount: '',
-        expenseAccount: '',
-        accumulatedDepreciationAccount: ''
+        usefulLifeMonths: '60' // Default 5 years
     });
+    
+    const [depreciationPeriod, setDepreciationPeriod] = useState(new Date().toISOString().substring(0, 7));
 
-    const fetchData = async () => {
+    const loadData = async () => {
         try {
-            const [assetsRes, accountsRes] = await Promise.all([
-                api.get('/assets'),
-                api.get('/accounting/accounts') // Fetches the CoA we built earlier!
-            ]);
-            setAssets(assetsRes.data.data || []);
-            setAccounts(accountsRes.data.data || accountsRes.data || []);
-        } catch (err) {
-            setMessage({ type: 'error', text: 'Failed to load assets or accounts.' });
+            setLoading(true);
+            const res = await fetchAssets();
+            setAssets(Array.isArray(res.data) ? res.data : []);
+        } catch (error) {
+            setStatus({ type: 'error', message: 'Failed to load fixed assets.' });
         } finally {
             setLoading(false);
         }
     };
 
-    useEffect(() => {
-        fetchData();
-    }, []);
+    useEffect(() => { loadData(); }, []);
 
-    const handleSubmit = async (e) => {
+    const handleRegister = async (e) => {
         e.preventDefault();
-        setMessage({ type: '', text: '' });
-        
+        setIsProcessing(true);
+        setStatus({ type: '', message: '' });
+
         try {
-            await api.post('/assets', formData);
-            setMessage({ type: 'success', text: 'Asset registered successfully.' });
-            setFormData({
-                ...formData,
-                assetName: '',
-                purchaseCost: '',
-                salvageValue: '0'
+            await registerAsset({
+                ...form,
+                purchasePrice: Number(form.purchasePrice),
+                salvageValue: Number(form.salvageValue),
+                usefulLifeMonths: Number(form.usefulLifeMonths)
             });
-            fetchData(); // Refresh table
+            setStatus({ type: 'success', message: 'Asset registered successfully.' });
+            setForm({ assetName: '', purchaseDate: '', purchasePrice: '', salvageValue: '0', usefulLifeMonths: '60' });
+            loadData();
         } catch (error) {
-            setMessage({ type: 'error', text: error.response?.data?.message || 'Failed to register asset.' });
+            setStatus({ type: 'error', message: error.response?.data?.error || 'Failed to register asset.' });
+        } finally {
+            setIsProcessing(false);
         }
     };
 
     const handleRunDepreciation = async () => {
-        if (!window.confirm("Are you sure? This will generate permanent Journal Entries for all active assets for this month.")) return;
+        if(!window.confirm(`Run depreciation for period ${depreciationPeriod}? This will post to the General Ledger.`)) return;
         
-        setDepreciating(true);
-        setMessage({ type: '', text: '' });
+        setIsProcessing(true);
+        setStatus({ type: '', message: '' });
 
         try {
-            const res = await api.post('/assets/depreciate');
-            setMessage({ 
-                type: 'success', 
-                text: `${res.data.message} (Total Depreciated: ₱${res.data.totalDepreciated.toLocaleString()})` 
-            });
-            fetchData(); // Refresh to show new Net Book Values
+            const res = await runDepreciation(depreciationPeriod);
+            setStatus({ type: 'success', message: res.message });
+            loadData();
         } catch (error) {
-            setMessage({ type: 'error', text: error.response?.data?.message || 'Failed to run depreciation.' });
+            setStatus({ type: 'error', message: error.response?.data?.error || 'Failed to run depreciation.' });
         } finally {
-            setDepreciating(false);
+            setIsProcessing(false);
         }
     };
 
-    const formatMoney = (amount) => `₱${(amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    const formatMoney = (amount) => `$${(Number(amount) || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}`;
+
+    if (loading) return <div className="p-8 text-slate-500">Loading Asset Register...</div>;
 
     return (
-        <div className="p-6 max-w-7xl mx-auto">
-            <div className="bg-white border border-slate-200 p-8 rounded-xl shadow-sm mb-8 flex justify-between items-center">
+        <div className="max-w-7xl mx-auto p-6">
+            <div className="mb-8 flex justify-between items-end">
                 <div>
-                    <h1 className="text-3xl font-light text-slate-900 mb-1">Fixed Assets & Depreciation</h1>
-                    <p className="text-slate-500 text-sm">Register equipment and automate straight-line depreciation to the ledger.</p>
+                    <h1 className="text-3xl font-bold text-slate-800 flex items-center gap-3">
+                        <Monitor className="text-indigo-600" size={32} />
+                        Fixed Assets
+                    </h1>
+                    <p className="text-slate-500 mt-2">Manage company property and run automated depreciation schedules.</p>
                 </div>
-                <button 
-                    onClick={handleRunDepreciation}
-                    disabled={depreciating || assets.length === 0}
-                    className="bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-300 text-white font-bold py-3 px-6 rounded-lg transition-all shadow-sm flex items-center gap-2"
-                >
-                    {depreciating ? <TrendingDown className="w-5 h-5 animate-pulse" /> : <PlayCircle className="w-5 h-5" />}
-                    {depreciating ? 'Processing Ledger...' : 'Run Monthly Depreciation'}
-                </button>
+                
+                {/* Depreciation Action Box */}
+                <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex items-center gap-4">
+                    <div>
+                        <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Target Period</label>
+                        <input 
+                            type="month" 
+                            value={depreciationPeriod}
+                            onChange={(e) => setDepreciationPeriod(e.target.value)}
+                            className="border border-slate-300 rounded px-3 py-1.5 text-sm outline-none focus:border-indigo-500"
+                        />
+                    </div>
+                    <button 
+                        onClick={handleRunDepreciation}
+                        disabled={isProcessing}
+                        className="bg-slate-900 hover:bg-slate-800 text-white font-bold py-2 px-4 rounded-lg flex items-center gap-2 text-sm disabled:opacity-50"
+                    >
+                        <Settings size={16} />
+                        Run Depreciation
+                    </button>
+                </div>
             </div>
 
-            {message.text && (
-                <div className={`p-4 mb-6 rounded-lg text-sm font-medium flex items-center gap-2 ${message.type === 'error' ? 'bg-red-50 text-red-700 border border-red-200' : 'bg-emerald-50 text-emerald-700 border border-emerald-200'}`}>
-                    {message.type === 'error' ? <AlertCircle className="w-5 h-5" /> : <CheckCircle2 className="w-5 h-5" />}
-                    {message.text}
+            {status.message && (
+                <div className={`p-4 rounded-lg mb-6 flex items-center gap-3 ${status.type === 'success' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-red-50 text-red-700 border border-red-200'}`}>
+                    {status.type === 'success' ? <CheckCircle size={20} /> : <AlertTriangle size={20} />}
+                    <span className="font-semibold text-sm">{status.message}</span>
                 </div>
             )}
 
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                
-                {/* LEFT: Asset Registration Form */}
-                <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden h-fit">
-                    <div className="bg-slate-50 border-b border-slate-200 p-4">
-                        <h2 className="font-bold text-slate-800 flex items-center gap-2">
-                            <PlusCircle className="w-4 h-4 text-indigo-600" /> Capitalize New Asset
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                {/* Register Form */}
+                <div className="lg:col-span-1">
+                    <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-6">
+                        <h2 className="text-lg font-bold text-slate-800 border-b border-slate-100 pb-3 mb-5 flex items-center gap-2">
+                            <Plus size={20} className="text-indigo-500" />
+                            Register New Asset
                         </h2>
+                        <form onSubmit={handleRegister} className="space-y-4">
+                            <div>
+                                <label className="block text-sm font-medium text-slate-700 mb-1">Asset Name</label>
+                                <input required type="text" value={form.assetName} onChange={e => setForm({...form, assetName: e.target.value})} className="w-full border border-slate-300 p-2 rounded outline-none focus:border-indigo-500" placeholder="e.g., Delivery Truck #1" />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-slate-700 mb-1">Purchase Date</label>
+                                <input required type="date" value={form.purchaseDate} onChange={e => setForm({...form, purchaseDate: e.target.value})} className="w-full border border-slate-300 p-2 rounded outline-none focus:border-indigo-500" />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-slate-700 mb-1">Purchase Price ($)</label>
+                                <input required type="number" min="0" step="0.01" value={form.purchasePrice} onChange={e => setForm({...form, purchasePrice: e.target.value})} className="w-full border border-slate-300 p-2 rounded outline-none focus:border-indigo-500" />
+                            </div>
+                            <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label className="block text-sm font-medium text-slate-700 mb-1">Salvage Value</label>
+                                    <input required type="number" min="0" step="0.01" value={form.salvageValue} onChange={e => setForm({...form, salvageValue: e.target.value})} className="w-full border border-slate-300 p-2 rounded outline-none focus:border-indigo-500" />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-slate-700 mb-1">Life (Months)</label>
+                                    <input required type="number" min="1" value={form.usefulLifeMonths} onChange={e => setForm({...form, usefulLifeMonths: e.target.value})} className="w-full border border-slate-300 p-2 rounded outline-none focus:border-indigo-500" />
+                                </div>
+                            </div>
+                            <button type="submit" disabled={isProcessing} className="w-full mt-4 bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2.5 rounded-lg transition-colors disabled:opacity-50">
+                                Save Asset
+                            </button>
+                        </form>
                     </div>
-                    <form onSubmit={handleSubmit} className="p-5 space-y-4">
-                        <div>
-                            <label className="block text-xs font-bold text-slate-600 mb-1">Asset Name</label>
-                            <input 
-                                type="text" required placeholder="e.g., MacBook Pro M3"
-                                value={formData.assetName} onChange={(e) => setFormData({...formData, assetName: e.target.value})}
-                                className="w-full border border-slate-300 rounded px-3 py-2 text-sm focus:ring-1 focus:ring-indigo-500 outline-none"
-                            />
-                        </div>
-                        <div className="grid grid-cols-2 gap-3">
-                            <div>
-                                <label className="block text-xs font-bold text-slate-600 mb-1">Purchase Cost</label>
-                                <input 
-                                    type="number" required min="1"
-                                    value={formData.purchaseCost} onChange={(e) => setFormData({...formData, purchaseCost: e.target.value})}
-                                    className="w-full border border-slate-300 rounded px-3 py-2 text-sm focus:ring-1 focus:ring-indigo-500 outline-none"
-                                />
-                            </div>
-                            <div>
-                                <label className="block text-xs font-bold text-slate-600 mb-1">Date</label>
-                                <input 
-                                    type="date" required
-                                    value={formData.purchaseDate} onChange={(e) => setFormData({...formData, purchaseDate: e.target.value})}
-                                    className="w-full border border-slate-300 rounded px-3 py-2 text-sm focus:ring-1 focus:ring-indigo-500 outline-none"
-                                />
-                            </div>
-                        </div>
-                        <div className="grid grid-cols-2 gap-3">
-                            <div>
-                                <label className="block text-xs font-bold text-slate-600 mb-1">Salvage Value</label>
-                                <input 
-                                    type="number" required min="0"
-                                    value={formData.salvageValue} onChange={(e) => setFormData({...formData, salvageValue: e.target.value})}
-                                    className="w-full border border-slate-300 rounded px-3 py-2 text-sm focus:ring-1 focus:ring-indigo-500 outline-none"
-                                />
-                            </div>
-                            <div>
-                                <label className="block text-xs font-bold text-slate-600 mb-1">Useful Life (Mo)</label>
-                                <input 
-                                    type="number" required min="1"
-                                    value={formData.usefulLifeMonths} onChange={(e) => setFormData({...formData, usefulLifeMonths: e.target.value})}
-                                    className="w-full border border-slate-300 rounded px-3 py-2 text-sm focus:ring-1 focus:ring-indigo-500 outline-none"
-                                />
-                            </div>
-                        </div>
-
-                        <div className="pt-2 border-t border-slate-100">
-                            <label className="block text-[10px] uppercase tracking-wider font-bold text-slate-400 mb-2">Ledger Routing</label>
-                            
-                            <select required value={formData.assetAccount} onChange={(e) => setFormData({...formData, assetAccount: e.target.value})} className="w-full mb-2 border border-slate-300 rounded px-3 py-2 text-xs text-slate-600 focus:ring-1 focus:ring-indigo-500 outline-none">
-                                <option value="">Select Asset Account (e.g. Office Equipment)</option>
-                                {accounts.filter(a => a.accountType === 'Asset' || a.type === 'Asset').map(a => (
-                                    <option key={a._id} value={a._id}>{a.accountCode || a.code} - {a.accountName || a.name}</option>
-                                ))}
-                            </select>
-
-                            <select required value={formData.expenseAccount} onChange={(e) => setFormData({...formData, expenseAccount: e.target.value})} className="w-full mb-2 border border-slate-300 rounded px-3 py-2 text-xs text-slate-600 focus:ring-1 focus:ring-indigo-500 outline-none">
-                                <option value="">Select Expense Account (e.g. Depreciation Exp)</option>
-                                {accounts.filter(a => a.accountType === 'Expense' || a.type === 'Expense').map(a => (
-                                    <option key={a._id} value={a._id}>{a.accountCode || a.code} - {a.accountName || a.name}</option>
-                                ))}
-                            </select>
-
-                            <select required value={formData.accumulatedDepreciationAccount} onChange={(e) => setFormData({...formData, accumulatedDepreciationAccount: e.target.value})} className="w-full border border-slate-300 rounded px-3 py-2 text-xs text-slate-600 focus:ring-1 focus:ring-indigo-500 outline-none">
-                                <option value="">Select Acc. Dep. Account (e.g. Acc. Dep. - Equip)</option>
-                                {accounts.filter(a => a.accountType === 'Asset' || a.type === 'Asset').map(a => (
-                                    <option key={a._id} value={a._id}>{a.accountCode || a.code} - {a.accountName || a.name}</option>
-                                ))}
-                            </select>
-                        </div>
-
-                        <button type="submit" className="w-full bg-slate-800 hover:bg-slate-900 text-white font-bold py-2 rounded transition-colors mt-4">
-                            Capitalize Asset
-                        </button>
-                    </form>
                 </div>
 
-                {/* RIGHT: Asset Register Table */}
-                <div className="lg:col-span-2 bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
-                    <div className="bg-slate-50 border-b border-slate-200 p-4">
-                        <h2 className="font-bold text-slate-800 flex items-center gap-2">
-                            <Monitor className="w-4 h-4 text-indigo-600" /> Active Asset Register
-                        </h2>
-                    </div>
-                    <div className="overflow-x-auto">
-                        <table className="w-full text-sm text-left">
-                            <thead className="bg-white text-slate-500 border-b border-slate-100">
-                                <tr>
-                                    <th className="p-4 font-semibold">Asset Details</th>
-                                    <th className="p-4 font-semibold text-right">Original Cost</th>
-                                    <th className="p-4 font-semibold text-right">Acc. Depreciation</th>
-                                    <th className="p-4 font-semibold text-right">Net Book Value</th>
-                                    <th className="p-4 font-semibold text-center">Status</th>
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-slate-50">
-                                {assets.length === 0 ? (
-                                    <tr><td colSpan="5" className="p-8 text-center text-slate-400">No assets registered.</td></tr>
-                                ) : (
-                                    assets.map((asset) => (
-                                        <tr key={asset._id} className="hover:bg-slate-50">
-                                            <td className="p-4">
-                                                <div className="font-bold text-slate-800">{asset.assetName}</div>
-                                                <div className="text-xs text-slate-400">{asset.assetCode} | {asset.usefulLifeMonths} mo life</div>
-                                            </td>
-                                            <td className="p-4 text-right font-medium text-slate-600">{formatMoney(asset.purchaseCost)}</td>
-                                            <td className="p-4 text-right text-rose-500 font-medium">({formatMoney(asset.accumulatedDepreciation)})</td>
-                                            <td className="p-4 text-right font-black text-slate-900">{formatMoney(asset.netBookValue || (asset.purchaseCost - asset.accumulatedDepreciation))}</td>
-                                            <td className="p-4 text-center">
-                                                <span className={`px-2 py-1 rounded text-[10px] font-bold uppercase tracking-wider ${asset.status === 'Active' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
-                                                    {asset.status}
-                                                </span>
-                                            </td>
-                                        </tr>
-                                    ))
-                                )}
-                            </tbody>
-                        </table>
+                {/* Asset Register Table */}
+                <div className="lg:col-span-2">
+                    <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
+                        <div className="bg-slate-50 border-b border-slate-200 p-5">
+                            <h2 className="text-lg font-bold text-slate-800">Asset Register</h2>
+                        </div>
+                        <div className="overflow-x-auto max-h-[600px] overflow-y-auto">
+                            <table className="w-full text-left border-collapse">
+                                <thead className="bg-white sticky top-0 shadow-sm">
+                                    <tr>
+                                        <th className="py-3 px-4 font-bold text-slate-500 text-xs uppercase">Asset</th>
+                                        <th className="py-3 px-4 font-bold text-slate-500 text-xs uppercase text-right">Cost</th>
+                                        <th className="py-3 px-4 font-bold text-slate-500 text-xs uppercase text-right">Accum. Depr.</th>
+                                        <th className="py-3 px-4 font-bold text-slate-500 text-xs uppercase text-right">Book Value</th>
+                                        <th className="py-3 px-4 font-bold text-slate-500 text-xs uppercase text-center">Status</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-100">
+                                    {assets.length === 0 ? (
+                                        <tr><td colSpan="5" className="p-8 text-center text-slate-500">No assets registered yet.</td></tr>
+                                    ) : (
+                                        assets.map(asset => (
+                                            <tr key={asset._id} className="hover:bg-slate-50">
+                                                <td className="py-3 px-4">
+                                                    <div className="font-semibold text-slate-800">{asset.assetName}</div>
+                                                    <div className="text-xs text-slate-500">Bought: {new Date(asset.purchaseDate).toLocaleDateString()}</div>
+                                                </td>
+                                                <td className="py-3 px-4 text-right font-mono text-slate-600">{formatMoney(asset.purchasePrice)}</td>
+                                                <td className="py-3 px-4 text-right font-mono text-red-500">{formatMoney(asset.accumulatedDepreciation)}</td>
+                                                <td className="py-3 px-4 text-right font-mono font-bold text-slate-800">{formatMoney(asset.currentBookValue)}</td>
+                                                <td className="py-3 px-4 text-center">
+                                                    <span className={`px-2 py-1 text-[10px] font-bold uppercase rounded-full ${asset.status === 'Active' ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-600'}`}>
+                                                        {asset.status}
+                                                    </span>
+                                                </td>
+                                            </tr>
+                                        ))
+                                    )}
+                                </tbody>
+                            </table>
+                        </div>
                     </div>
                 </div>
             </div>

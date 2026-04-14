@@ -2,7 +2,7 @@ import React, { useContext, useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { AuthContext } from '../context/AuthContext';
 import api from '../services/api';
-import { LayoutDashboard, Monitor, BookOpen, CreditCard, Database, Home, BarChart3, Settings, Package, ShoppingCart, Truck, FileText, Users, LogOut, ChevronDown, Briefcase, PlusCircle, ShieldAlert, CheckSquare, Building2 } from 'lucide-react';
+import { Factory, LayoutDashboard, Monitor, BookOpen, CreditCard, Database, Home, BarChart3, Settings, Package, ShoppingCart, Truck, FileText, Users, LogOut, ChevronDown, Briefcase, PlusCircle, ShieldAlert, CheckSquare, Building2 } from 'lucide-react';
 
 const Navbar = () => {
     const { user, logout } = useContext(AuthContext);
@@ -138,7 +138,7 @@ const Navbar = () => {
                                         Master Data
                                         <ChevronDown className="w-3 h-3" />
                                     </button>
-                                    <div className="absolute opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 bg-white border border-slate-200 min-w-48 shadow-sm rounded-lg top-full left-0 py-2 mt-1">
+                                    <div className="absolute opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 bg-white border border-slate-200 min-w-56 shadow-sm rounded-lg top-full left-0 py-2 mt-1">
                                         <Link to="/admin/products" className="text-slate-600 no-underline text-sm font-medium px-4 py-2 block hover:bg-slate-50 hover:text-slate-900 transition-colors flex items-center gap-2">
                                             <Package className="w-4 h-4" />
                                             Products & Catalog
@@ -146,6 +146,11 @@ const Navbar = () => {
                                         <Link to="/admin/inventory" className="text-slate-600 no-underline text-sm font-medium px-4 py-2 block hover:bg-slate-50 hover:text-slate-900 transition-colors flex items-center gap-2">
                                             <Package className="w-4 h-4" />
                                             Warehouses & Stock
+                                        </Link>
+                                        {/* 👇 THE NEW MANUFACTURING LINK 👇 */}
+                                        <Link to="/admin/manufacturing" className="text-slate-600 no-underline text-sm font-medium px-4 py-2 block hover:bg-slate-50 hover:text-slate-900 transition-colors flex items-center gap-2 border-t border-slate-100 mt-1 pt-2">
+                                            <Settings className="w-4 h-4" />
+                                            Manufacturing & BOM
                                         </Link>
                                     </div>
                                 </div>

@@ -1,5 +1,6 @@
 const Sale = require('../models/Sale');
 const Product = require('../models/Product');
+const mongoose = require('mongoose');
 
 exports.getDashboardMetrics = async (req, res) => {
     try {
@@ -36,6 +37,51 @@ exports.getDashboardMetrics = async (req, res) => {
 
         res.status(200).json({ success: true, data: { lowStock, topProducts, revenueTrends } });
     } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+};
+
+// @desc    Get Sales grouped by Day and Month
+// @route   GET /api/analytics/sales
+// @access  Private
+exports.getSalesAnalytics = async (req, res) => {
+    try {
+        const targetDivision = req.headers['x-division-id'] || req.user?.division;
+        if (!targetDivision) return res.status(400).json({ success: false, message: 'Division context missing.' });
+        
+        const divisionId = new mongoose.Types.ObjectId(
+            targetDivision._id ? targetDivision._id.toString() : targetDivision.toString()
+        );
+
+        // Get the date 30 days ago for the daily chart
+        const thirtyDaysAgo = new Date();
+        thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+        // 📊 1. DAILY SALES (Last 30 Days)
+        const dailySales = await Sale.aggregate([
+            { $match: { division: divisionId, createdAt: { $gte: thirtyDaysAgo }, status: { $ne: 'Voided' } } },
+            { $group: {
+                _id: { $dateToString: { format: "%Y-%m-%d", date: "$createdAt" } }, // Group by YYYY-MM-DD
+                totalRevenue: { $sum: "$totalAmount" },
+                orderCount: { $sum: 1 }
+            }},
+            { $sort: { _id: 1 } } // Sort chronologically
+        ]);
+
+        // 📈 2. MONTHLY SALES (All Time)
+        const monthlySales = await Sale.aggregate([
+            { $match: { division: divisionId, status: { $ne: 'Voided' } } },
+            { $group: {
+                _id: { $dateToString: { format: "%Y-%m", date: "$createdAt" } }, // Group by YYYY-MM
+                totalRevenue: { $sum: "$totalAmount" },
+                orderCount: { $sum: 1 }
+            }},
+            { $sort: { _id: 1 } }
+        ]);
+
+        res.status(200).json({ success: true, data: { daily: dailySales, monthly: monthlySales } });
+    } catch (error) {
+        console.error("Analytics Error:", error);
         res.status(500).json({ success: false, error: error.message });
     }
 };

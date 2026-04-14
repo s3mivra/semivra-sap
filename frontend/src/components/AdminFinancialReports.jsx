@@ -1,14 +1,19 @@
 import React, { useState, useEffect } from 'react';
 import { fetchFinancialSummary } from '../services/reportService'; 
+import { closeFinancialPeriod } from '../services/reportService'; // Adjust import based on where you put it
 
 const AdminFinancialReports = () => {
     const [report, setReport] = useState(null);
     const [loading, setLoading] = useState(true);
+    const [period, setPeriod] = useState('2026-04'); // Defaulting to current operational period
+    const [isClosing, setIsClosing] = useState(false);
 
     useEffect(() => {
         const loadReport = async () => {
             try {
-                const response = await fetchFinancialSummary();
+                setLoading(true);
+                // Assume backend handles ?period=YYYY-MM filtering
+                const response = await fetchFinancialSummary(period);
                 setReport(response); 
             } catch (error) {
                 console.error("Failed to load financials", error);
@@ -17,9 +22,29 @@ const AdminFinancialReports = () => {
             }
         };
         loadReport();
-    }, []);
+    }, [period]);
 
-    if (loading) return (
+    const handleClosePeriod = async () => {
+        if (!window.confirm(`WARNING: You are about to close period ${period}. This will calculate Net Income, roll it into Retained Earnings, and lock all journal entries for this month. This action cannot be undone. Proceed?`)) {
+            return;
+        }
+
+        try {
+            setIsClosing(true);
+            await closeFinancialPeriod(period);
+            alert(`Period ${period} successfully closed and balances rolled forward.`);
+            // Refresh report to show updated Retained Earnings and locked status
+            const updatedReport = await fetchFinancialSummary(period);
+            setReport(updatedReport);
+        } catch (error) {
+            console.error("Failed to close period", error);
+            alert(error.response?.data?.error || "Failed to close period.");
+        } finally {
+            setIsClosing(false);
+        }
+    };
+
+    if (loading && !report) return (
         <div className="flex justify-center items-center p-8">
             <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-slate-400"></div>
             <span className="ml-2 text-slate-600">Generating GAAP Compliant Reports...</span>
@@ -30,10 +55,9 @@ const AdminFinancialReports = () => {
         <div className="bg-slate-50 border border-slate-200 text-slate-700 p-4 rounded-lg">Failed to load report data.</div>
     );
 
-    const { data, isBalanced } = report;
+    const { data, isBalanced, isClosed } = report;
     const formatMoney = (amount) => `₱${amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
-    // Reusable Sub-Section Component
     const AccountList = ({ accounts, title, total, isSubSection = false }) => (
         <div className="mb-6">
             <h3 className={`text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 ${isSubSection ? 'ml-4' : ''}`}>{title}</h3>
@@ -59,12 +83,36 @@ const AdminFinancialReports = () => {
     return (
         <div className="p-6 max-w-6xl mx-auto">
             
-            {/* Header */}
+            {/* Header with Period Controls */}
             <div className="bg-white border border-slate-200 p-8 rounded-xl shadow-sm mb-8 flex justify-between items-center">
                 <div>
-                    <div className="inline-block bg-indigo-100 text-indigo-800 text-xs font-bold px-2 py-1 rounded mb-2">GAAP / PFRS COMPLIANT</div>
-                    <h1 className="text-3xl font-light text-slate-900 mb-1">Financial Statements</h1>
-                    <p className="text-slate-500 text-sm">Multi-Step P&L and Classified Balance Sheet</p>
+                    <div className="flex items-center gap-3 mb-2">
+                        <span className="inline-block bg-indigo-100 text-indigo-800 text-xs font-bold px-2 py-1 rounded">GAAP / PFRS COMPLIANT</span>
+                        {isClosed && <span className="inline-block bg-red-100 text-red-800 text-xs font-bold px-2 py-1 rounded">PERIOD CLOSED</span>}
+                    </div>
+                    <h1 className="text-3xl font-light text-slate-900 mb-2">Financial Statements</h1>
+                    
+                    <div className="flex items-center gap-4 mt-4">
+                        <label className="text-sm font-semibold text-slate-600">Accounting Period:</label>
+                        <input 
+                            type="month" 
+                            value={period}
+                            onChange={(e) => setPeriod(e.target.value)}
+                            className="border border-slate-300 rounded px-3 py-1.5 text-sm outline-none focus:border-indigo-500 transition-colors"
+                        />
+                        {!isClosed && isBalanced && (
+                            <button 
+                                onClick={handleClosePeriod}
+                                disabled={isClosing}
+                                className="bg-slate-900 hover:bg-slate-800 text-white text-sm font-semibold px-4 py-1.5 rounded transition-colors disabled:opacity-50"
+                            >
+                                {isClosing ? 'Closing Period...' : 'Execute Month-End Close'}
+                            </button>
+                        )}
+                        {!isBalanced && !isClosed && (
+                            <span className="text-red-500 text-xs font-bold">Cannot close unbalanced period.</span>
+                        )}
+                    </div>
                 </div>
                 <div className={`text-center p-5 rounded-lg border-2 ${data.netIncome >= 0 ? 'border-emerald-500 bg-emerald-50' : 'border-red-500 bg-red-50'}`}>
                     <div className="text-xs font-bold uppercase tracking-wide mb-1 text-slate-600">Net Income</div>
@@ -78,7 +126,7 @@ const AdminFinancialReports = () => {
                 <div className="bg-white border border-slate-200 rounded-xl shadow-sm h-fit">
                     <div className="bg-slate-50 border-b border-slate-200 p-5 rounded-t-xl">
                         <h2 className="text-lg font-bold text-slate-800">Income Statement</h2>
-                        <p className="text-slate-500 text-xs">For the Current Period</p>
+                        <p className="text-slate-500 text-xs">For the Period: {period}</p>
                     </div>
                     <div className="p-6">
                         <AccountList accounts={data.breakdown.revenue} title="Revenue" total={data.totalRevenue} />
@@ -104,7 +152,7 @@ const AdminFinancialReports = () => {
                 <div className="bg-white border border-slate-200 rounded-xl shadow-sm h-fit">
                     <div className="bg-slate-50 border-b border-slate-200 p-5 rounded-t-xl">
                         <h2 className="text-lg font-bold text-slate-800">Balance Sheet</h2>
-                        <p className="text-slate-500 text-xs">As of Current Date</p>
+                        <p className="text-slate-500 text-xs">As of End of {period}</p>
                     </div>
                     <div className="p-6">
                         {/* ASSETS */}

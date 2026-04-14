@@ -1,52 +1,56 @@
+const mongoose = require('mongoose');
 const JournalEntry = require('../models/JournalEntry');
 const Account = require('../models/Account');
 
-// 1. Create a New Journal Entry
 exports.createJournalEntry = async (req, res) => {
+    // 1. Initialize the ACID Session
+    const session = await mongoose.startSession();
+    
     try {
-        const { documentDate, description, sourceDocument, lines } = req.body;
+        // 2. Wrap everything in a strict transaction
+        await session.withTransaction(async () => {
+            const { lines, description, documentDate, sourceDocument } = req.body;
+            const division = req.headers['x-division-id']; // Ensure this is extracted via your getDivision helper
 
-        if (!lines || lines.length < 2) {
-            return res.status(400).json({ success: false, message: "A journal entry requires at least two lines." });
-        }
+            if (!division) throw new Error("Tenant Division ID is missing.");
 
-        // 📅 1. Auto-Generate the Period (YYYY-MM)
-        const dDate = new Date(documentDate);
-        const period = `${dDate.getFullYear()}-${String(dDate.getMonth() + 1).padStart(2, '0')}`;
-
-        // 🔢 2. Auto-Generate Entry Number
-        const count = await JournalEntry.countDocuments({ period });
-        const entryNumber = `JRN-${period}-${String(count + 1).padStart(4, '0')}`;
-
-        // 💾 3. Save it (Your Schema's pre-validate hook will automatically check Debits = Credits!)
-        const newEntry = await JournalEntry.create({
-            entryNumber,
-            documentDate,
-            period,
-            description,
-            sourceDocument,
-            lines,
-            postedBy: req.user._id // Ensure your auth middleware attaches req.user
+            // Step A: Create the Journal Entry record
+            const entry = new JournalEntry({
+                entryNumber: `JE-${Date.now()}`, // Or your generateEntryNumber helper
+                date: documentDate || new Date(),
+                postingDate: new Date(),
+                description,
+                sourceDocument,
+                division,
+                lines,
+                status: 'Posted',
+                postedBy: req.user._id
+            });
+            
+            // Pre-save hooks will validate Debits === Credits here
+            await entry.save({ session });
+            
+            // Step B: Atomically update the Chart of Accounts balances
+            for (const line of lines) {
+                // Adjust math based on Normal Balance (Asset/Expense = DR, Liab/Eq/Rev = CR)
+                // Assuming currentBalance is purely additive for simplicity, adjust to your exact schema
+                const netChange = (line.debit || 0) - (line.credit || 0); 
+                
+                await Account.findByIdAndUpdate(
+                    line.account,
+                    { $inc: { currentBalance: netChange } },
+                    { session, new: true }
+                );
+            }
         });
 
-        // ⚖️ 4. Update the Chart of Accounts running balances
-        for (let line of lines) {
-            const account = await Account.findById(line.account);
-            if (account) {
-                // Asset & Expense increase with Debits. Liability, Equity, & Revenue increase with Credits.
-                if (['Asset', 'Expense'].includes(account.accountType)) {
-                    account.currentBalance += (Number(line.debit) || 0) - (Number(line.credit) || 0);
-                } else {
-                    account.currentBalance += (Number(line.credit) || 0) - (Number(line.debit) || 0);
-                }
-                await account.save();
-            }
-        }
-
-        res.status(201).json({ success: true, data: newEntry });
+        // 3. If we reach here, the transaction was completely successful
+        res.status(201).json({ message: "Journal entry posted successfully and balances updated." });
     } catch (error) {
-        // This will catch the error if your schema says "Debits don't equal Credits!"
-        res.status(400).json({ success: false, message: error.message });
+        // Transaction automatically aborted by withTransaction on error
+        res.status(400).json({ error: error.message || "Failed to post transaction." });
+    } finally {
+        session.endSession();
     }
 };
 
@@ -118,4 +122,53 @@ exports.voidJournalEntry = async (req, res) => {
     } catch (error) {
         res.status(500).json({ success: false, message: error.message });
     }
+};
+
+exports.createAccrual = async (req, res) => {
+  const targetDivision = req.headers['x-division-id'];
+  const { period, documentDate, postingDate, lines, description, entryNumber } = req.body;
+  const session = await mongoose.startSession();
+
+  try {
+    await session.withTransaction(async () => {
+      const totalDebit = lines.reduce((sum, l) => sum + (l.debit || 0), 0);
+      
+      // 1. Post Original Accrual
+      const accrualJE = new JournalEntry({
+        division: targetDivision, period, entryNumber, documentDate, postingDate, description,
+        lines, totalDebit, totalCredit: totalDebit
+      });
+      await accrualJE.save({ session });
+
+      // 2. Post Reversal for 1st day of NEXT period
+      const currentPeriodDate = new Date(`${period}-01`);
+      currentPeriodDate.setMonth(currentPeriodDate.getMonth() + 1);
+      const nextPeriodString = currentPeriodDate.toISOString().substring(0, 7);
+      
+      // Flip DR/CR
+      const reversingLines = lines.map(line => ({
+        account: line.account,
+        debit: line.credit || 0, 
+        credit: line.debit || 0
+      }));
+
+      const reversingJE = new JournalEntry({
+        division: targetDivision,
+        period: nextPeriodString,
+        entryNumber: `REV-${entryNumber}`,
+        documentDate: new Date(),
+        postingDate: currentPeriodDate, // 1st day of next month
+        description: `Auto-Reversal of Accrual ${entryNumber}`,
+        lines: reversingLines,
+        totalDebit, totalCredit: totalDebit
+      });
+
+      await reversingJE.save({ session });
+    });
+    res.json({ message: 'Accrual and Reversal successfully generated' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  } finally {
+    session.endSession();
+  }
 };

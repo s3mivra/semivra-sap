@@ -1,98 +1,142 @@
-const FixedAsset = require('../models/FixedAsset');
+const mongoose = require('mongoose');
+const FixedAsset = require('../models/FixedAsset'); // Ensure you have this model!
 const JournalEntry = require('../models/JournalEntry');
 const Account = require('../models/Account');
 
-// 1. Get all assets
-exports.getAssets = async (req, res) => {
-    try {
-        const assets = await FixedAsset.find().populate('assetAccount expenseAccount accumulatedDepreciationAccount', 'accountName accountCode');
-        res.status(200).json({ success: true, data: assets });
-    } catch (error) {
-        res.status(500).json({ success: false, message: error.message });
-    }
+const getDivision = (req) => {
+    if (req.user?.role?.level === 100) return req.headers['x-division-id'] || req.body.division;
+    return req.user?.division;
 };
 
-// 2. Register a new asset
+// @desc    Register a new Fixed Asset
 exports.registerAsset = async (req, res) => {
     try {
-        const assetCount = await FixedAsset.countDocuments();
-        const assetCode = `FA-${String(assetCount + 1).padStart(4, '0')}`;
-        
-        const newAsset = await FixedAsset.create({
-            ...req.body,
-            assetCode
+        const targetDivision = getDivision(req);
+        if (!targetDivision) return res.status(400).json({ error: 'Division ID required' });
+
+        const { assetName, description, purchaseDate, purchasePrice, salvageValue, usefulLifeMonths } = req.body;
+
+        const asset = await FixedAsset.create({
+            division: targetDivision,
+            assetName,
+            description,
+            purchaseDate,
+            purchasePrice,
+            salvageValue,
+            usefulLifeMonths,
+            currentBookValue: purchasePrice,
+            accumulatedDepreciation: 0,
+            status: 'Active'
         });
 
-        res.status(201).json({ success: true, data: newAsset });
+        res.status(201).json({ success: true, data: asset });
     } catch (error) {
-        res.status(400).json({ success: false, message: error.message });
+        res.status(400).json({ error: error.message });
     }
 };
 
-// 3. The Core Depreciation Engine (Runs at the end of every month)
-exports.runMonthlyDepreciation = async (req, res) => {
+// @desc    Get all assets for the division
+exports.getAssets = async (req, res) => {
     try {
-        const targetDate = new Date();
-        const period = `${targetDate.getFullYear()}-${String(targetDate.getMonth() + 1).padStart(2, '0')}`;
+        const targetDivision = getDivision(req);
+        const assets = await FixedAsset.find({ division: targetDivision }).sort({ purchaseDate: -1 });
+        res.status(200).json({ success: true, data: assets });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
 
-        // Find assets that still have value to lose
-        const activeAssets = await FixedAsset.find({ status: 'Active' });
-        let totalDepreciationPosted = 0;
-        let entriesCreated = 0;
+// @desc    Run Monthly Depreciation (ACID Transaction)
+exports.runDepreciation = async (req, res) => {
+    const session = await mongoose.startSession();
 
-        for (let asset of activeAssets) {
-            // Straight-Line Formula: (Cost - Salvage) / Useful Life
-            const monthlyDepreciation = (asset.purchaseCost - asset.salvageValue) / asset.usefulLifeMonths;
-            
-            // Check if adding this month goes over the limit
-            let depreciationToPost = monthlyDepreciation;
-            if (asset.accumulatedDepreciation + monthlyDepreciation >= (asset.purchaseCost - asset.salvageValue)) {
-                depreciationToPost = (asset.purchaseCost - asset.salvageValue) - asset.accumulatedDepreciation;
-                asset.status = 'Fully Depreciated';
+    try {
+        await session.withTransaction(async () => {
+            const targetDivision = getDivision(req);
+            const { period } = req.body; // e.g., '2026-04'
+
+            if (!targetDivision) throw new Error("Division ID required.");
+
+            // 1. Find all active assets that still have value to depreciate
+            const assets = await FixedAsset.find({ 
+                division: targetDivision, 
+                status: 'Active',
+                currentBookValue: { $gt: 0 } // Technically > salvageValue, but simplifying for MVP
+            }).session(session);
+
+            if (assets.length === 0) throw new Error("No active assets require depreciation.");
+
+            let totalDepreciationExpense = 0;
+            const assetUpdates = [];
+
+            // 2. Calculate Straight-Line Depreciation
+            for (const asset of assets) {
+                // If it's already at or below salvage value, skip it
+                if (asset.currentBookValue <= asset.salvageValue) {
+                    asset.status = 'Fully Depreciated';
+                    assetUpdates.push(asset.save({ session }));
+                    continue;
+                }
+
+                // Straight Line Math: (Cost - Salvage) / Useful Life
+                const monthlyDepreciation = (asset.purchasePrice - asset.salvageValue) / asset.usefulLifeMonths;
+                
+                // Ensure we don't depreciate past the salvage value on the final month
+                const actualDepreciation = Math.min(monthlyDepreciation, asset.currentBookValue - asset.salvageValue);
+
+                asset.accumulatedDepreciation += actualDepreciation;
+                asset.currentBookValue -= actualDepreciation;
+                
+                if (asset.currentBookValue <= asset.salvageValue) {
+                    asset.status = 'Fully Depreciated';
+                }
+
+                totalDepreciationExpense += actualDepreciation;
+                assetUpdates.push(asset.save({ session }));
             }
 
-            if (depreciationToPost <= 0) continue;
+            if (totalDepreciationExpense === 0) throw new Error("No depreciation to post this month.");
 
-            // 📝 Construct the Journal Entry for this specific asset
-            const lines = [
-                { account: asset.expenseAccount, debit: depreciationToPost, credit: 0, memo: `Monthly Dep. for ${asset.assetCode}` },
-                { account: asset.accumulatedDepreciationAccount, debit: 0, credit: depreciationToPost, memo: `Acc. Dep. for ${asset.assetCode}` }
-            ];
+            // 3. Post the Journal Entry
+            let expenseAcc = await Account.findOne({ name: 'Depreciation Expense', division: targetDivision }).session(session);
+            if (!expenseAcc) expenseAcc = (await Account.create([{ name: 'Depreciation Expense', type: 'Expense', code: '6100', division: targetDivision }], { session }))[0];
+                
+            let accumDeprAcc = await Account.findOne({ name: 'Accumulated Depreciation', division: targetDivision }).session(session);
+            if (!accumDeprAcc) accumDeprAcc = (await Account.create([{ name: 'Accumulated Depreciation', type: 'Asset', code: '1501', isContra: true, division: targetDivision }], { session }))[0];
 
-            const entryCount = await JournalEntry.countDocuments({ period });
-            const entryNumber = `DEP-${period}-${String(entryCount + 1).padStart(4, '0')}`;
-
-            await JournalEntry.create({
-                entryNumber,
-                documentDate: targetDate,
+            const entryCount = await JournalEntry.countDocuments({ period, division: targetDivision }).session(session);
+            
+            await JournalEntry.create([{
+                division: targetDivision,
                 period,
-                description: `Monthly Depreciation: ${asset.assetName}`,
-                sourceDocument: asset.assetCode,
-                lines,
-                postedBy: req.user.id || req.user._id
-            });
+                entryNumber: `DEP-${period}-${String(entryCount + 1).padStart(4, '0')}`,
+                date: Date.now(),
+                documentDate: Date.now(),
+                postingDate: Date.now(),
+                description: `Monthly Fixed Asset Depreciation for ${period}`,
+                lines: [
+                    { account: expenseAcc._id, debit: totalDepreciationExpense, credit: 0, memo: 'Depreciation Expense' },
+                    { account: accumDeprAcc._id, debit: 0, credit: totalDepreciationExpense, memo: 'Accumulated Depreciation' }
+                ],
+                postedBy: req.user.id
+            }], { session });
 
-            // Update Account Balances
-            await Account.findByIdAndUpdate(asset.expenseAccount, { $inc: { currentBalance: depreciationToPost } });
-            await Account.findByIdAndUpdate(asset.accumulatedDepreciationAccount, { $inc: { currentBalance: depreciationToPost } });
+            // 4. Update Account Balances
+            expenseAcc.currentBalance = (expenseAcc.currentBalance || 0) + totalDepreciationExpense;
+            // Accumulated Depreciation is a Contra-Asset, so a credit INCREASES its absolute balance
+            accumDeprAcc.currentBalance = (accumDeprAcc.currentBalance || 0) + totalDepreciationExpense; 
 
-            // Update Asset Record
-            asset.accumulatedDepreciation += depreciationToPost;
-            asset.lastDepreciationDate = targetDate;
-            await asset.save();
-
-            totalDepreciationPosted += depreciationToPost;
-            entriesCreated++;
-        }
-
-        res.status(200).json({ 
-            success: true, 
-            message: `Successfully posted ${entriesCreated} depreciation entries.`,
-            totalDepreciated: totalDepreciationPosted
+            await Promise.all([
+                expenseAcc.save({ session }),
+                accumDeprAcc.save({ session }),
+                ...assetUpdates
+            ]);
         });
 
+        res.status(200).json({ success: true, message: 'Depreciation successfully calculated and posted to the ledger.' });
     } catch (error) {
-        console.error("Depreciation Error:", error);
-        res.status(500).json({ success: false, message: error.message });
+        res.status(400).json({ error: error.message });
+    } finally {
+        session.endSession();
     }
 };

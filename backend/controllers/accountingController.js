@@ -1,6 +1,7 @@
 const Account = require('../models/Account');
 const JournalEntry = require('../models/JournalEntry');
 const PurchaseOrder = require('../models/PurchaseOrder');
+const Bill = require('../models/Bill');
 const FinancialPeriod = require('../models/FinancialPeriod');
 const mongoose = require('mongoose');
 
@@ -120,58 +121,61 @@ exports.deleteAccount = async (req, res) => {
 // ==========================================
 
 exports.postJournalEntry = async (req, res) => {
+    const session = await mongoose.startSession();
+    
     try {
-        const { date, documentDate, description, sourceDocument, lines } = req.body;
-        const targetDate = documentDate || date || Date.now();
-        const targetDivision = getDivision(req);
+        // 👈 CRITICAL FIX: Wrap in ACID Transaction
+        await session.withTransaction(async () => {
+            const { date, documentDate, description, sourceDocument, lines } = req.body;
+            const targetDate = documentDate || date || Date.now();
+            const targetDivision = getDivision(req);
 
-        if (!lines || lines.length < 2) return res.status(400).json({ success: false, message: "Requires at least two lines." });
+            if (!lines || lines.length < 2) throw new Error("Requires at least two lines.");
 
-        const dDate = new Date(targetDate);
-        const period = `${dDate.getFullYear()}-${String(dDate.getMonth() + 1).padStart(2, '0')}`;
-        
-        // 🚨 THE IRONCLAD LOCK: Check if the period is closed! 🚨
-        const periodStatus = await FinancialPeriod.findOne({ division: targetDivision, periodCode: period });
-        if (periodStatus && periodStatus.status === 'Closed') {
-            return res.status(403).json({ 
-                success: false, 
-                message: `CRITICAL STOP: The financial period (${period}) is CLOSED. You cannot post transactions to a locked month.` 
-            });
-        }
-        // 👆 ================================================== 👆
+            const dDate = new Date(targetDate);
+            const period = `${dDate.getFullYear()}-${String(dDate.getMonth() + 1).padStart(2, '0')}`;
+            
+            const periodStatus = await FinancialPeriod.findOne({ division: targetDivision, periodCode: period }).session(session);
+            if (periodStatus && periodStatus.status === 'Closed') {
+                throw new Error(`CRITICAL STOP: The financial period (${period}) is CLOSED.`);
+            }
 
-        const entryCount = await JournalEntry.countDocuments({ period, division: targetDivision });
-        const entryNumber = `JRN-${period}-${String(entryCount + 1).padStart(4, '0')}`;
+            const entryCount = await JournalEntry.countDocuments({ period, division: targetDivision }).session(session);
+            const entryNumber = `JRN-${period}-${String(entryCount + 1).padStart(4, '0')}`;
 
-        const journalEntry = await JournalEntry.create({
-            division: targetDivision, // 🏢 Locked to Division
-            entryNumber,
-            documentDate: targetDate,
-            date: targetDate,
-            period,
-            description,
-            sourceDocument,
-            lines,
-            postedBy: req.user.id || req.user._id
+            // Pass the { session } to the creation
+            const journalEntry = await JournalEntry.create([{
+                division: targetDivision,
+                entryNumber,
+                documentDate: targetDate,
+                date: targetDate,
+                period,
+                description,
+                sourceDocument,
+                lines,
+                postedBy: req.user.id || req.user._id
+            }], { session });
+
+            // Pass the { session } to the balance updates
+            for (let line of lines) {
+                const account = await Account.findOne({ _id: line.account, division: targetDivision }).session(session);
+                if (account) {
+                    const accType = account.accountType || account.type;
+                    if (['Asset', 'Expense'].includes(accType)) {
+                        account.currentBalance = (account.currentBalance || 0) + (Number(line.debit) || 0) - (Number(line.credit) || 0);
+                    } else {
+                        account.currentBalance = (account.currentBalance || 0) + (Number(line.credit) || 0) - (Number(line.debit) || 0);
+                    }
+                    await account.save({ session }); // 👈 Lock the save to the transaction
+                }
+            }
         });
 
-        for (let line of lines) {
-            // 🏢 Ensure they are updating an account in THEIR division
-            const account = await Account.findOne({ _id: line.account, division: targetDivision });
-            if (account) {
-                const accType = account.accountType || account.type;
-                if (['Asset', 'Expense'].includes(accType)) {
-                    account.currentBalance = (account.currentBalance || 0) + (Number(line.debit) || 0) - (Number(line.credit) || 0);
-                } else {
-                    account.currentBalance = (account.currentBalance || 0) + (Number(line.credit) || 0) - (Number(line.debit) || 0);
-                }
-                await account.save();
-            }
-        }
-
-        res.status(201).json({ success: true, message: 'Journal Entry posted successfully', data: journalEntry });
+        res.status(201).json({ success: true, message: 'Journal Entry posted successfully' });
     } catch (error) {
         res.status(400).json({ success: false, message: error.message });
+    } finally {
+        session.endSession();
     }
 };
 
@@ -225,27 +229,41 @@ exports.voidJournalEntry = async (req, res) => {
         res.status(500).json({ success: false, message: error.message });
     }
 };
-
 // ==========================================
 // ACCOUNTS PAYABLE & PURCHASING
 // ==========================================
-
 exports.getUnpaidBills = async (req, res) => {
     try {
-        const unpaidBills = await PurchaseOrder.find({
-            division: getDivision(req), // 🏢 Locked to division
-            paymentMethod: 'Terms',
-            status: { $ne: 'Paid' } 
-        }).populate('supplier', 'name');
+        // 🏢 1. SILO LOCK: Get the Division safely
+        const targetDivision = req.headers['x-division-id'] || req.user?.division;
+        if (!targetDivision) {
+            return res.status(400).json({ success: false, message: 'Division context is missing.' });
+        }
 
-        const formattedBills = unpaidBills.map(bill => {
-            const b = bill.toObject();
-            b.balance = b.balance !== undefined ? b.balance : b.totalAmount;
-            return b;
-        }).filter(b => b.balance > 0);
+        const divisionIdString = targetDivision._id ? targetDivision._id.toString() : targetDivision.toString();
 
-        res.status(200).json({ success: true, data: formattedBills });
+        // 🧾 2. FETCH FROM THE TRUE ACCOUNTING COLLECTION
+        // We now query the actual 'Bill' collection instead of hacking the Purchase Orders
+        const unpaidBills = await Bill.find({
+            division: divisionIdString,
+            balanceDue: { $gt: 0 },
+            status: { $ne: 'Voided' }
+        })
+        .populate('supplier', 'name email phone')
+        .populate('purchaseOrder', 'poNumber') // Bring in the PO number for reference
+        .sort({ dueDate: 1 }); // Sort by closest due date first!
+
+        // 💰 3. CALCULATE GRAND TOTAL FOR THE DASHBOARD
+        const grandTotalAP = unpaidBills.reduce((sum, bill) => sum + (bill.balanceDue || 0), 0);
+
+        res.status(200).json({ 
+            success: true, 
+            data: unpaidBills,           // The flat array for your React Table
+            grandTotal: grandTotalAP     // The total debt for your KPI Cards
+        });
+
     } catch (error) {
+        console.error("AP Fetch Error:", error);
         res.status(500).json({ success: false, error: error.message });
     }
 };

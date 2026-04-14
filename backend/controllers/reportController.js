@@ -146,59 +146,170 @@ exports.getFinancialSummary = async (req, res) => {
     }
 };
 
-// ==========================================
-// 2. TRIAL BALANCE (The Ledger Polygraph)
-// ==========================================
+// @desc    Generate a Trial Balance Report
+// @route   GET /api/reports/trial-balance
+// @access  Private (Admin / Finance)
 exports.getTrialBalance = async (req, res) => {
     try {
-        const targetDivision = getDivision(req);
-        
-        // 🏢 SILO LOCK: Only fetch active accounts for THIS division
-        const accounts = await Account.find({ division: targetDivision, isActive: true }).sort({ accountCode: 1 });
+        // 🏢 1. SILO LOCK: Get the Division
+        const targetDivision = req.headers['x-division-id'] || req.user?.division;
+        if (!targetDivision) {
+            return res.status(400).json({ success: false, message: 'Division context is missing.' });
+        }
 
-        let totalDebit = 0;
-        let totalCredit = 0;
-        const reportLines = [];
+        // Force to ObjectId for Aggregation matching
+        const divisionId = new mongoose.Types.ObjectId(
+            targetDivision._id ? targetDivision._id.toString() : targetDivision.toString()
+        );
 
-        accounts.forEach(acc => {
-            if (acc.currentBalance === 0) return;
+        // 📅 Optional: Allow filtering 'As Of' a specific date
+        const asOfDate = req.query.date ? new Date(req.query.date) : new Date();
 
-            let debit = 0;
-            let credit = 0;
+        // 🚀 2. THE ENTERPRISE AGGREGATION PIPELINE
+        const trialBalance = await JournalEntry.aggregate([
+            // Step A: Filter by Division AND Date
+            { 
+                $match: { 
+                    division: divisionId,
+                    postingDate: { $lte: asOfDate },
+                    status: 'Posted' // Ignore Drafts or Voided entries
+                } 
+            },
+            // Step B: Break apart the 'lines' array into individual documents
+            { $unwind: "$lines" },
+            // Step C: Group by the Account ID and sum up all Debits and Credits
+            {
+                $group: {
+                    _id: "$lines.account",
+                    totalDebit: { $sum: "$lines.debit" },
+                    totalCredit: { $sum: "$lines.credit" }
+                }
+            },
+            // Step D: Join (Lookup) with the Account collection to get the names
+            {
+                $lookup: {
+                    from: "accounts", // Mongoose pluralizes collection names automatically
+                    localField: "_id",
+                    foreignField: "_id",
+                    as: "accountDetails"
+                }
+            },
+            // Step E: Flatten the Account details array
+            { $unwind: "$accountDetails" },
+            // Step F: Format the final output cleanly
+            {
+                $project: {
+                    _id: 0,
+                    accountId: "$_id",
+                    accountCode: { $ifNull: ["$accountDetails.accountCode", "$accountDetails.code"] },
+                    accountName: { $ifNull: ["$accountDetails.accountName", "$accountDetails.name"] },
+                    type: { $ifNull: ["$accountDetails.accountType", "$accountDetails.type"] },
+                    totalDebit: 1,
+                    totalCredit: 1,
+                    // Calculate the net balance based on Account Type rules (GAAP)
+                    balance: {
+                        $cond: {
+                            if: { $in: [{ $ifNull: ["$accountDetails.accountType", "$accountDetails.type"] }, ["Asset", "Expense"]] },
+                            then: { $subtract: ["$totalDebit", "$totalCredit"] },
+                            else: { $subtract: ["$totalCredit", "$totalDebit"] }
+                        }
+                    }
+                }
+            },
+            // Step G: Sort by Account Code for a beautiful accountant-friendly view
+            { $sort: { accountCode: 1 } }
+        ]);
 
-            if (acc.normalBalance === 'Debit') {
-                if (acc.currentBalance > 0) debit = acc.currentBalance;
-                else credit = Math.abs(acc.currentBalance); 
-            } else {
-                if (acc.currentBalance > 0) credit = acc.currentBalance;
-                else debit = Math.abs(acc.currentBalance);
-            }
+        // ⚖️ 3. CALCULATE THE GRAND TOTALS (The Auditor's Proof)
+        let systemTotalDebit = 0;
+        let systemTotalCredit = 0;
 
-            totalDebit += debit;
-            totalCredit += credit;
-
-            reportLines.push({
-                accountCode: acc.accountCode || acc.code,
-                accountName: acc.accountName || acc.name,
-                type: acc.accountType || acc.type,
-                debit,
-                credit
-            });
+        trialBalance.forEach(row => {
+            systemTotalDebit += row.totalDebit;
+            systemTotalCredit += row.totalCredit;
         });
 
-        const isBalanced = Math.abs(totalDebit - totalCredit) < 0.01;
+        // Floating point math fix
+        systemTotalDebit = Math.round(systemTotalDebit * 100) / 100;
+        systemTotalCredit = Math.round(systemTotalCredit * 100) / 100;
 
-        res.status(200).json({ 
-            success: true, 
-            isBalanced,
-            message: isBalanced ? "Ledger is perfectly balanced." : "WARNING: Ledger is out of balance!",
-            data: { 
-                lines: reportLines, 
-                totals: { debit: totalDebit, credit: totalCredit } 
-            } 
+        const isBalanced = systemTotalDebit === systemTotalCredit;
+
+        res.status(200).json({
+            success: true,
+            data: {
+                asOf: asOfDate,
+                isBalanced,
+                systemTotalDebit,
+                systemTotalCredit,
+                accounts: trialBalance
+            }
         });
 
     } catch (error) {
-        res.status(500).json({ success: false, message: error.message });
+        console.error("Trial Balance Error:", error);
+        res.status(500).json({ success: false, message: "Failed to generate Trial Balance." });
     }
+};
+
+exports.getIncomeStatement = async (req, res) => {
+  const targetDivision = req.headers['x-division-id'];
+  const { period } = req.query; // Format: 'YYYY-MM'
+
+  if (!targetDivision) return res.status(400).json({ error: 'Division ID required' });
+
+  try {
+    const pipeline = [
+      { $match: { division: mongoose.Types.ObjectId(targetDivision), period } },
+      { $unwind: "$lines" },
+      { 
+        $lookup: {
+          from: 'accounts',
+          localField: 'lines.account',
+          foreignField: '_id',
+          as: 'accountDetails'
+        }
+      },
+      { $unwind: "$accountDetails" },
+      { $match: { "accountDetails.type": { $in: ["Revenue", "COGS", "Expense"] } } },
+      {
+        $group: {
+          _id: { type: "$accountDetails.type", name: "$accountDetails.name", code: "$accountDetails.code" },
+          totalDebit: { $sum: "$lines.debit" },
+          totalCredit: { $sum: "$lines.credit" }
+        }
+      },
+      {
+        $project: {
+          type: "$_id.type", name: "$_id.name", code: "$_id.code",
+          balance: {
+            $cond: {
+              if: { $eq: ["$_id.type", "Revenue"] },
+              then: { $subtract: ["$totalCredit", "$totalDebit"] }, // Revenue: Normal Credit
+              else: { $subtract: ["$totalDebit", "$totalCredit"] }  // COGS & Expense: Normal Debit
+            }
+          }
+        }
+      },
+      {
+        $group: {
+          _id: "$type",
+          accounts: { $push: { name: "$name", code: "$code", balance: "$balance" } },
+          total: { $sum: "$balance" }
+        }
+      }
+    ];
+
+    const results = await JournalEntry.aggregate(pipeline);
+
+    // Initialize structured response
+    const pnl = { Revenue: { total: 0, accounts: [] }, COGS: { total: 0, accounts: [] }, Expense: { total: 0, accounts: [] } };
+    results.forEach(category => { pnl[category._id] = category; });
+
+    const netIncome = pnl.Revenue.total - pnl.COGS.total - pnl.Expense.total;
+    res.json({ ...pnl, NetIncome: netIncome });
+
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
 };

@@ -1,5 +1,6 @@
 import React, { useContext } from 'react';
 import { AuthContext } from '../context/AuthContext';
+import SalesDashboard from '../components/Dashboards/SalesDashboard'; // Adjust path as needed
 import { LayoutDashboard, Clock, Bell, ArrowRight, Shield, Building, ChevronRight } from 'lucide-react';
 
 const Dashboard = () => {
@@ -19,6 +20,7 @@ const Dashboard = () => {
                         <LayoutDashboard className="w-8 h-8 text-indigo-600 hidden sm:block" />
                         Welcome back, {user?.name?.split(' ')[0] || 'User'}
                     </h1>
+                    <SalesDashboard />
                     <p className="text-sm text-slate-500 mt-2 max-w-xl">
                         Here is an overview of your active workspace. Use the navigation menu above to access your assigned modules.
                     </p>

@@ -1,37 +1,44 @@
+const mongoose = require('mongoose');
 const JournalEntry = require('../models/JournalEntry');
 const Account = require('../models/Account');
 const Product = require('../models/Product');
 
 exports.createInvoice = async (req, res) => {
+    // 🛡️ 1. START THE ACID TRANSACTION
+    const session = await mongoose.startSession();
+    session.startTransaction();
+
     try {
         const { customerName, invoiceDate, description, items, isVatable } = req.body;
 
-        if (!items || items.length === 0) {
-            return res.status(400).json({ success: false, message: "Invoice must contain at least one item." });
+        // 🏢 ENTERPRISE FIX: Grab the secure division header!
+        const targetDivision = req.headers['x-division-id'] || req.user?.division;
+        const divIdString = targetDivision?._id ? targetDivision._id.toString() : targetDivision?.toString();
+
+        if (!divIdString) {
+            throw new Error("Division context is missing. Cannot post invoice.");
         }
 
-        // 1. 🛒 CALCULATE TOTALS, COGS & CHECK STOCK
-        let baseAmount = 0; // Total Revenue
-        let totalCOGS = 0;  // Total Cost of Goods Sold
+        if (!items || items.length === 0) {
+            throw new Error("Invoice must contain at least one item.");
+        }
+
+        // 2. 🛒 CALCULATE TOTALS, COGS & CHECK STOCK
+        let baseAmount = 0; 
+        let totalCOGS = 0;  
         const productsToUpdate = [];
 
         for (let item of items) {
-            // Populate ingredients just in case we are selling a recipe
-            const product = await Product.findById(item.productId).populate('ingredients.rawMaterial');
-            if (!product) {
-                return res.status(404).json({ success: false, message: `Product not found.` });
-            }
+            // Note: .session(session) links this read/write to the transaction!
+            const product = await Product.findById(item.productId).populate('ingredients.rawMaterial').session(session);
+            if (!product) throw new Error(`Product not found.`);
 
-            // Always add to revenue
             baseAmount += (item.quantity * item.unitPrice);
 
-            // 📦 PHYSICAL GOODS LOGIC (Standard Inventory)
+            // 📦 PHYSICAL GOODS LOGIC
             if (product.isPhysical && !product.isRecipe) {
                 if (product.currentStock < item.quantity) {
-                    return res.status(400).json({ 
-                        success: false, 
-                        message: `Insufficient stock for ${product.name}. Available: ${product.currentStock}` 
-                    });
+                    throw new Error(`Insufficient stock for ${product.name}. Available: ${product.currentStock}`);
                 }
                 totalCOGS += (item.quantity * product.averageCost);
                 product.currentStock -= item.quantity;
@@ -40,30 +47,22 @@ exports.createInvoice = async (req, res) => {
             
             // 🍳 RECIPE / BOM LOGIC (Backflush Costing)
             else if (product.isRecipe) {
-                // For recipes, we deduct the raw materials, not the finished product!
                 for (let ingredient of product.ingredients) {
                     const rawMaterial = ingredient.rawMaterial;
                     const requiredQty = ingredient.quantityNeeded * item.quantity;
                     
                     if (rawMaterial.currentStock < requiredQty) {
-                        return res.status(400).json({ 
-                            success: false, 
-                            message: `Insufficient raw material (${rawMaterial.name}) to produce ${product.name}.` 
-                        });
+                        throw new Error(`Insufficient raw material (${rawMaterial.name}) to produce ${product.name}.`);
                     }
                     
                     rawMaterial.currentStock -= requiredQty;
-                    // Calculate COGS based on the cost of the raw materials used
                     totalCOGS += (requiredQty * rawMaterial.averageCost);
                     productsToUpdate.push(rawMaterial); 
                 }
             }
-            
-            // 💻 DIGITAL GOODS LOGIC
-            // If !isPhysical and !isRecipe, it just passes through. No stock deduction, COGS remains 0.
         }
 
-        // 2. 🇵🇭 CALCULATE TAXES
+        // 3. 🇵🇭 CALCULATE TAXES
         let vatAmount = 0;
         let totalReceivable = baseAmount;
 
@@ -72,33 +71,31 @@ exports.createInvoice = async (req, res) => {
             totalReceivable = baseAmount + vatAmount;
         }
 
-        // 3. 🏦 FETCH REQUIRED ACCOUNTS
-        const arAccount = await Account.findOne({ $or: [{ accountName: { $regex: /Accounts Receivable/i } }, { name: { $regex: /Accounts Receivable/i } }] });
-        const revenueAccount = await Account.findOne({ $or: [{ accountName: { $regex: /Sales|Service Revenue/i } }, { name: { $regex: /Sales|Service Revenue/i } }] });
-        const vatAccount = await Account.findOne({ $or: [{ accountName: { $regex: /Output VAT|VAT Payable/i } }, { name: { $regex: /Output VAT|VAT Payable/i } }] });
+        // 4. 🏦 FETCH REQUIRED ACCOUNTS (LOCKED TO DIVISION!)
+        const arAccount = await Account.findOne({ division: divIdString, $or: [{ accountName: /Accounts Receivable/i }, { name: /Accounts Receivable/i }] }).session(session);
+        const revenueAccount = await Account.findOne({ division: divIdString, $or: [{ accountName: /Sales|Service Revenue/i }, { name: /Sales|Service Revenue/i }] }).session(session);
+        const vatAccount = await Account.findOne({ division: divIdString, $or: [{ accountName: /Output VAT|VAT Payable/i }, { name: /Output VAT|VAT Payable/i }] }).session(session);
         
-        // We only strictly require COGS and Inventory accounts if we actually sold physical goods
         let cogsAccount, inventoryAccount;
         if (totalCOGS > 0) {
-            cogsAccount = await Account.findOne({ $or: [{ accountName: { $regex: /Cost of Goods/i } }, { name: { $regex: /Cost of Goods/i } }, { accountGroup: 'COGS' }] });
-            inventoryAccount = await Account.findOne({ $or: [{ accountName: { $regex: /Inventory Asset/i } }, { name: { $regex: /Inventory Asset/i } }] });
+            cogsAccount = await Account.findOne({ division: divIdString, $or: [{ accountName: /Cost of Goods/i }, { name: /Cost of Goods/i }, { accountGroup: 'COGS' }] }).session(session);
+            inventoryAccount = await Account.findOne({ division: divIdString, $or: [{ accountName: /Inventory Asset/i }, { name: /Inventory Asset/i }] }).session(session);
             
             if (!cogsAccount || !inventoryAccount) {
-                return res.status(400).json({ success: false, message: "Missing COGS or Inventory accounts in the Chart of Accounts." });
+                throw new Error("Missing COGS or Inventory accounts in this Division's Chart of Accounts.");
             }
         }
 
         if (!arAccount || !revenueAccount || (isVatable && !vatAccount)) {
-            return res.status(400).json({ success: false, message: "Missing AR, Revenue, or VAT accounts in the Chart of Accounts." });
+            throw new Error("Missing AR, Revenue, or VAT accounts in this Division's Chart of Accounts.");
         }
 
-        // 4. 📝 CONSTRUCT THE JOURNAL ENTRY
+        // 5. 📝 CONSTRUCT THE JOURNAL ENTRY LINES
         const lines = [
             { account: arAccount._id, debit: totalReceivable, credit: 0, memo: `Invoice to ${customerName}` },
-            { account: revenueAccount._id, debit: 0, credit: baseAmount, memo: description }
+            { account: revenueAccount._id, debit: 0, credit: baseAmount, memo: description || 'Sales Revenue' }
         ];
 
-        // Only add COGS lines if we sold physical inventory
         if (totalCOGS > 0) {
             lines.push(
                 { account: cogsAccount._id, debit: totalCOGS, credit: 0, memo: `COGS for ${customerName}` },
@@ -110,30 +107,37 @@ exports.createInvoice = async (req, res) => {
             lines.push({ account: vatAccount._id, debit: 0, credit: vatAmount, memo: '12% Output VAT' });
         }
 
-        // 📅 5. POST TO THE LEDGER
+        // 📅 6. POST TO THE LEDGER
         const targetDate = new Date(invoiceDate || Date.now());
         const period = `${targetDate.getFullYear()}-${String(targetDate.getMonth() + 1).padStart(2, '0')}`;
-        const entryCount = await JournalEntry.countDocuments({ period });
+        
+        // Count existing entries in this division for this period to generate the ID
+        const entryCount = await JournalEntry.countDocuments({ division: divIdString, period }).session(session);
         const entryNumber = `INV-${period}-${String(entryCount + 1).padStart(4, '0')}`;
 
-        const automatedEntry = await JournalEntry.create({
+        // Note: We use an array payload for .create() when passing a session
+        const automatedEntry = await JournalEntry.create([{
+            division: divIdString,
             entryNumber,
             documentDate: targetDate,
+            postingDate: new Date(), // Always today, even if document is backdated
             period,
             description: `Sales Invoice: ${customerName}`,
             sourceDocument: entryNumber,
-            lines,
-            postedBy: req.user.id || req.user._id
-        });
+            status: 'Posted',
+            postedBy: req.user.id || req.user._id,
+            lines
+        }], { session });
 
-        // 💾 6. SAVE UPDATED INVENTORY (Using Promise.all to handle duplicates safely)
-        // Deduplicate in case a recipe uses the same raw material twice, or multiple items hit the same stock
+        // 💾 7. SAVE UPDATED INVENTORY 
         const uniqueProducts = [...new Map(productsToUpdate.map(item => [item._id.toString(), item])).values()];
-        await Promise.all(uniqueProducts.map(p => p.save()));
+        for (let p of uniqueProducts) {
+            await p.save({ session }); // Must use individual saves to pass the session
+        }
 
-        // ⚖️ 7. UPDATE RUNNING ACCOUNT BALANCES
+        // ⚖️ 8. UPDATE RUNNING ACCOUNT BALANCES
         for (let line of lines) {
-            const acc = await Account.findById(line.account);
+            const acc = await Account.findById(line.account).session(session);
             if (acc) {
                 const accType = acc.accountType || acc.type;
                 if (['Asset', 'Expense'].includes(accType)) {
@@ -141,9 +145,13 @@ exports.createInvoice = async (req, res) => {
                 } else {
                     acc.currentBalance = (acc.currentBalance || 0) + line.credit - line.debit;
                 }
-                await acc.save();
+                await acc.save({ session });
             }
         }
+
+        // ✅ 9. COMMIT TRANSACTION
+        await session.commitTransaction();
+        session.endSession();
 
         res.status(201).json({ 
             success: true, 
@@ -154,12 +162,15 @@ exports.createInvoice = async (req, res) => {
                 cogsRecognized: totalCOGS,
                 grossProfit: baseAmount - totalCOGS,
                 vatCollected: vatAmount,
-                journalId: automatedEntry._id
+                journalId: automatedEntry[0]._id
             }
         });
 
     } catch (error) {
-        console.error("Sales Invoice Error:", error);
-        res.status(500).json({ success: false, message: error.message });
+        // 🛑 THE FAILSAFE: UNDO EVERYTHING
+        await session.abortTransaction();
+        session.endSession();
+        console.error("🔥 Sales Invoice Aborted:", error.message);
+        res.status(400).json({ success: false, message: error.message });
     }
 };

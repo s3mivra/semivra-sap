@@ -1,13 +1,14 @@
 const express = require('express');
 const router = express.Router();
 const fixedAssetController = require('../controllers/fixedAssetController');
-const { protect, authorize } = require('../middleware/auth'); 
+const { protect } = require('../middleware/auth');
+const licenseShield = require('../middleware/licenseShield');
 
 router.use(protect);
-router.use(authorize('Admin', 'Super Admin'));
+router.use(licenseShield);
 
-router.get('/', fixedAssetController.getAssets);
 router.post('/', fixedAssetController.registerAsset);
-router.post('/depreciate', fixedAssetController.runMonthlyDepreciation);
+router.get('/', fixedAssetController.getAssets);
+router.post('/depreciate', fixedAssetController.runDepreciation);
 
 module.exports = router;

@@ -7,7 +7,7 @@ router.use(protect);
 router.use(authorize('Admin', 'Super Admin'));
 
 // Your existing payment routes
-router.get('/unpaid', arController.getUnpaidSales);
+router.get('/unpaid', arController.getUnpaidReceivables);
 router.post('/pay/:id', arController.receivePayment);
 
 // 👇 The new Aging route we just added 👇

@@ -7,5 +7,5 @@ router.use(protect);
 
 router.get('/', authorize('Admin', 'Super Admin', 'Accountant'), periodController.getPeriods);
 router.post('/toggle', authorize('Admin', 'Super Admin'), periodController.togglePeriod); // Only high-level admins can lock/unlock
-
+router.post('/close', protect, periodController.closePeriod);
 module.exports = router;

@@ -4,6 +4,13 @@ const StockMovement = require('../models/StockMovement');
 const JournalEntry = require('../models/JournalEntry');
 const Account = require('../models/Account');
 
+const getDivision = (req) => {
+    if (req.user?.role?.level === 100) {
+        return req.headers['x-division-id'] || req.body.division;
+    }
+    return req.user?.division;
+};
+
 exports.processCheckout = async (req, res) => {
     try {
         // 1. Accept new fields from frontend
@@ -68,9 +75,9 @@ exports.processCheckout = async (req, res) => {
             paymentMethod, 
             customerName, 
             status: saleStatus, 
-            // NEW: If they charged to account, the balance due is the total amount!
             balanceDue: saleStatus === 'Unpaid' ? finalTotalAmount : 0, 
-            processedBy: req.user.id
+            processedBy: req.user.id,
+            division: getDivision(req) // 👈 CRITICAL FIX: Lock the sale to the tenant
         });
 
         // 4. AUTOMATION: Deduct Physical Stock
@@ -236,10 +243,11 @@ exports.processRefund = async (req, res) => {
             await JournalEntry.create({
                 entryNumber, 
                 date: Date.now(), 
-                description: `Refund - ${sale.orNumber || 'Legacy Receipt'}`, 
-                sourceDocument: sale._id, 
-                lines, 
-                postedBy: cashierId // <-- FIXED
+                description: `POS Sale - ${orNumber} (${customerName})`, 
+                sourceDocument: sale._id,
+                division: getDivision(req), // 👈 CRITICAL FIX: Lock the ledger to the tenant
+                lines: [ /* ... your existing lines ... */ ],
+                postedBy: req.user.id
             });
         }
 
