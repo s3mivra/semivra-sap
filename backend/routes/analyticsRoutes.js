@@ -1,11 +1,11 @@
 const express = require('express');
-const { getDashboardMetrics } = require('../controllers/analyticsController');
-const { protect, authorize } = require('../middleware/auth');
-
 const router = express.Router();
+const { getDashboardMetrics } = require('../controllers/analyticsController');
+const { protect } = require('../middleware/auth');
+const licenseShield = require('../middleware/licenseShield');
 
 router.use(protect);
-router.use(authorize('Admin', 'Super Admin'));
+router.use(licenseShield);
 
 router.get('/metrics', getDashboardMetrics);
 

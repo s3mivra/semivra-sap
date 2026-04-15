@@ -1,19 +1,19 @@
 import React, { useState, useEffect } from 'react';
-import { fetchAnalytics } from '../services/analyticsService';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line } from 'recharts';
-import { BarChart3, TrendingUp, AlertTriangle, Package, DollarSign, Loader } from 'lucide-react';
+import { fetchDashboardMetrics } from '../services/analyticsService';
+import { TrendingUp, Package, ShoppingBag, Loader, AlertTriangle } from 'lucide-react';
 
 const AdminAnalytics = () => {
-    const [metrics, setMetrics] = useState({ lowStock: [], topProducts: [], revenueTrends: [] });
+    const [metrics, setMetrics] = useState(null);
     const [loading, setLoading] = useState(true);
+    const [error, setError] = useState(null);
 
     useEffect(() => {
         const loadData = async () => {
             try {
-                const response = await fetchAnalytics();
-                setMetrics(response.data);
-            } catch (error) {
-                console.error("Failed to load analytics", error);
+                const res = await fetchDashboardMetrics();
+                setMetrics(res.data);
+            } catch (err) {
+                setError('Failed to load executive dashboard data.');
             } finally {
                 setLoading(false);
             }
@@ -21,92 +21,119 @@ const AdminAnalytics = () => {
         loadData();
     }, []);
 
-    if (loading) return (
-        <div className="flex justify-center items-center p-8">
-            <Loader className="w-6 h-6 animate-spin text-slate-400" />
-            <span className="ml-2 text-slate-600">Loading Dashboard...</span>
-        </div>
-    );
+    const formatMoney = (amount) => `₱${(Number(amount) || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}`;
+
+    if (loading) return <div className="p-12 flex justify-center text-indigo-600"><Loader className="animate-spin" size={40} /></div>;
+    if (error) return <div className="p-8 text-red-500 font-bold text-center bg-red-50 rounded-xl m-6 border border-red-200">{error}</div>;
+
+    // Calculate chart scaling
+    const maxChartValue = Math.max(...metrics.revenueTrends.map(d => d.revenue)) || 1;
 
     return (
-        <div className="p-6 max-w-7xl mx-auto">
-            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-8">
-                <div className="flex items-center gap-3">
-                    <BarChart3 className="w-8 h-8 text-slate-400" />
-                    <h1 className="text-3xl font-light tracking-tight text-slate-900 m-0">Business Analytics</h1>
-                </div>
-                <div className="text-sm text-slate-500 bg-slate-100 px-3 py-1 rounded-full">Live Data Feed</div>
+        <div className="max-w-7xl mx-auto p-6 space-y-8">
+            <div>
+                <h1 className="text-3xl font-black text-slate-800 tracking-tight">Executive Dashboard</h1>
+                <p className="text-slate-500 mt-1 font-medium">Real-time operational performance and inventory alerts.</p>
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
-                
-                {/* LOW STOCK ALERTS */}
-                <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
-                    <div className="flex items-center gap-3 mb-6">
-                        <AlertTriangle className="w-6 h-6 text-red-500" />
-                        <h3 className="text-lg font-medium text-slate-900 m-0">Low Stock Alerts</h3>
+            {/* KPI CARDS */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div className="bg-slate-900 p-6 rounded-2xl shadow-lg flex flex-col justify-between text-white relative overflow-hidden">
+                    <div className="absolute -right-6 -top-6 w-32 h-32 bg-emerald-500 rounded-full opacity-20 blur-2xl"></div>
+                    <div className="flex justify-between items-start mb-4 relative z-10">
+                        <div className="bg-white/10 p-3 rounded-lg"><TrendingUp size={24} className="text-emerald-400" /></div>
+                        <span className="text-emerald-400 text-xs font-bold uppercase tracking-wider">Last 30 Days</span>
                     </div>
-                    <ul className="list-none p-0 m-0 space-y-3">
-                        {metrics.lowStock.length === 0 ? (
-                            <li className="text-slate-500 text-sm">All inventory levels are healthy!</li>
-                        ) : (
-                            metrics.lowStock.map(item => (
-                                <li key={item._id} className="flex justify-between items-center p-3 border-b border-slate-200 last:border-b-0">
-                                    <span className="font-medium text-slate-900 text-sm">{item.name}</span>
-                                    <span className="bg-slate-100 text-slate-700 px-3 py-1 rounded-full text-xs font-bold">
+                    <div className="relative z-10">
+                        <p className="text-slate-400 text-sm font-bold uppercase tracking-wider mb-1">Total Revenue</p>
+                        <h3 className="text-4xl font-black text-white">{formatMoney(metrics.kpis.revenue30Days)}</h3>
+                    </div>
+                </div>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                
+                {/* CHART: 30 Day Revenue */}
+                <div className="lg:col-span-2 bg-white border border-slate-200 rounded-2xl shadow-sm p-8">
+                    <div className="mb-8">
+                        <h2 className="text-lg font-bold text-slate-800">30-Day Sales Trend</h2>
+                        <p className="text-sm text-slate-500">Gross revenue generated per day</p>
+                    </div>
+
+                    <div className="h-64 flex items-end justify-between gap-1 border-b-2 border-slate-100 pb-2 relative">
+                        {metrics.revenueTrends.length === 0 && (
+                            <div className="absolute inset-0 flex items-center justify-center text-slate-400 font-bold">No sales data for the last 30 days.</div>
+                        )}
+                        {metrics.revenueTrends.map((data, idx) => {
+                            const height = Math.max(2, (data.revenue / maxChartValue) * 100);
+                            return (
+                                <div key={idx} className="flex-1 flex flex-col items-center justify-end h-full relative group">
+                                    {/* Hover Tooltip */}
+                                    <div className="absolute -top-10 bg-slate-800 text-white text-xs font-bold px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-20">
+                                        {data._id}: {formatMoney(data.revenue)}
+                                    </div>
+                                    <div 
+                                        style={{ height: `${height}%` }} 
+                                        className="w-full max-w-[24px] bg-indigo-500 rounded-t-sm hover:bg-indigo-400 transition-colors"
+                                    ></div>
+                                </div>
+                            );
+                        })}
+                    </div>
+                    {/* X-Axis Labels (Show first, middle, last to avoid crowding) */}
+                    <div className="flex justify-between mt-2 text-xs font-bold text-slate-400">
+                        <span>{metrics.revenueTrends[0]?._id || ''}</span>
+                        <span>{metrics.revenueTrends[Math.floor(metrics.revenueTrends.length/2)]?._id || ''}</span>
+                        <span>{metrics.revenueTrends[metrics.revenueTrends.length - 1]?._id || ''}</span>
+                    </div>
+                </div>
+
+                {/* LISTS: Top Products & Low Stock */}
+                <div className="lg:col-span-1 space-y-6">
+                    
+                    {/* Top Products */}
+                    <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-6">
+                        <h2 className="text-base font-bold text-slate-800 flex items-center gap-2 border-b border-slate-100 pb-3 mb-4">
+                            <ShoppingBag size={18} className="text-indigo-500" /> Top Selling Products
+                        </h2>
+                        <div className="space-y-3">
+                            {metrics.topProducts.length === 0 && <p className="text-sm text-slate-500 text-center py-4">No sales data yet.</p>}
+                            {metrics.topProducts.map((prod, idx) => (
+                                <div key={idx} className="flex justify-between items-center bg-slate-50 p-3 rounded-lg border border-slate-100">
+                                    <div>
+                                        <p className="text-sm font-bold text-slate-800 truncate max-w-[150px]">{prod.name}</p>
+                                        <p className="text-xs text-slate-500 font-mono">{prod.sku}</p>
+                                    </div>
+                                    <span className="text-sm font-black text-indigo-600 bg-indigo-50 px-2 py-1 rounded">
+                                        {prod.totalSold} sold
+                                    </span>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+
+                    {/* Low Stock Alerts */}
+                    <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-6">
+                        <h2 className="text-base font-bold text-slate-800 flex items-center gap-2 border-b border-slate-100 pb-3 mb-4">
+                            <AlertTriangle size={18} className="text-rose-500" /> Low Stock Alerts
+                        </h2>
+                        <div className="space-y-3">
+                            {metrics.lowStock.length === 0 && <p className="text-sm text-emerald-600 font-bold flex items-center justify-center gap-2 py-4"><Package size={16}/> All inventory levels healthy.</p>}
+                            {metrics.lowStock.map((item, idx) => (
+                                <div key={idx} className="flex justify-between items-center bg-rose-50 p-3 rounded-lg border border-rose-100">
+                                    <div>
+                                        <p className="text-sm font-bold text-slate-800 truncate max-w-[150px]">{item.name}</p>
+                                        <p className="text-xs text-slate-500 font-mono">{item.sku}</p>
+                                    </div>
+                                    <span className="text-sm font-black text-rose-600">
                                         {item.currentStock} left
                                     </span>
-                                </li>
-                            ))
-                        )}
-                    </ul>
-                </div>
-
-                {/* TOP PRODUCTS CHART */}
-                <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 lg:col-span-2">
-                    <div className="flex items-center gap-3 mb-6">
-                        <TrendingUp className="w-6 h-6 text-blue-500" />
-                        <h3 className="text-lg font-medium text-slate-900 m-0">Top Selling Products (Units Sold)</h3>
-                    </div>
-                    {metrics.topProducts.length === 0 ? (
-                        <div className="h-48 flex items-center justify-center text-slate-400">No sales data available.</div>
-                    ) : (
-                        <div style={{ height: '250px' }}>
-                            <ResponsiveContainer width="100%" height="100%">
-                                <BarChart data={metrics.topProducts} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
-                                    <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                                    <XAxis dataKey="name" tick={{ fontSize: 12 }} />
-                                    <YAxis allowDecimals={false} />
-                                    <Tooltip cursor={{ fill: '#f4f6f7' }} contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }} />
-                                    <Bar dataKey="totalSold" fill="#3b82f6" radius={[4, 4, 0, 0]} name="Units Sold" />
-                                </BarChart>
-                            </ResponsiveContainer>
+                                </div>
+                            ))}
                         </div>
-                    )}
-                </div>
-            </div>
-
-            {/* REVENUE TRENDS CHART */}
-            <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-                <div className="flex items-center gap-3 mb-6">
-                    <DollarSign className="w-6 h-6 text-green-500" />
-                    <h3 className="text-lg font-medium text-slate-900 m-0">7-Day Revenue Trend</h3>
-                </div>
-                {metrics.revenueTrends.length === 0 ? (
-                    <div className="h-72 flex items-center justify-center text-slate-400">No revenue data for the last 7 days.</div>
-                ) : (
-                    <div className="h-72 w-full overflow-hidden">
-                        <ResponsiveContainer width="100%" height="100%">
-                            <LineChart data={metrics.revenueTrends} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
-                                <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                                <XAxis dataKey="_id" tick={{ fontSize: 12 }} />
-                                <YAxis tickFormatter={(value) => `$${value}`} />
-                                <Tooltip formatter={(value) => `$${value.toFixed(2)}`} labelStyle={{ color: '#7f8c8d' }} contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }} />
-                                <Line type="monotone" dataKey="revenue" stroke="#10b981" strokeWidth={3} activeDot={{ r: 8 }} name="Gross Revenue" />
-                            </LineChart>
-                        </ResponsiveContainer>
                     </div>
-                )}
+
+                </div>
             </div>
         </div>
     );

@@ -1,12 +1,16 @@
 import api from './api';
 
-export const closeFinancialPeriod = async (period) => {
-    // Hits the backend periodController.js we built earlier
-    const response = await api.post('/periods/close', { period });
+export const fetchBalanceSheet = async () => {
+    const response = await api.get('/reports/balance-sheet');
     return response.data;
 };
 
-export const fetchFinancialSummary = async () => {
-    const response = await api.get('/reports/financials');
+export const fetchIncomeStatement = async (startDate = '', endDate = '') => {
+    const response = await api.get(`/reports/income-statement?startDate=${startDate}&endDate=${endDate}`);
+    return response.data;
+};
+
+export const fetchTrialBalance = async (date = '') => {
+    const response = await api.get(`/reports/trial-balance?date=${date}`);
     return response.data;
 };

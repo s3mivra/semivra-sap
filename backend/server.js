@@ -86,7 +86,7 @@ app.use('/api/journals', journalRoutes);
 app.use('/api/sales', salesRoutes);
 app.use('/api/taxes', taxRoutes);
 app.use('/api/reconciliation', reconciliationRoutes);
-app.use('/api/assets', fixedAssetRoutes);
+app.use('/api/fixed-assets', fixedAssetRoutes);
 app.use('/api/divisions', divisionRoutes);
 app.use('/api/customers', customerRoutes);
 app.use('/api/periods', periodRoutes);

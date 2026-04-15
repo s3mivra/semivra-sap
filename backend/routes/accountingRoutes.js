@@ -12,14 +12,17 @@ const {
 const { protect, authorize } = require('../middleware/auth');
 const auditLog = require('../middleware/auditLog');
 
+// 🛡️ IMPORT THE VALIDATION SHIELD
+const { validateBody } = require('../middleware/validate');
+const { journalEntrySchema, voidJournalSchema } = require('../validations/accountingSchemas');
+
 const router = express.Router();
 
 // 1. Verify they have a valid token
 router.use(protect);
 
-// 👇 THE FIX: Check for the exact permission we defined in the User Manager! 👇
+// 2. Check for the exact permission defined in the User Manager
 router.use(authorize('Manage Ledger'));
-// 👆 ========================================================================= 👆
 
 // Chart of Accounts Routes
 router.route('/accounts')
@@ -32,11 +35,14 @@ router.route('/accounts/:id')
 // Journal Entry Routes
 router.route('/journals')
     .get(auditLog('VIEW_GENERAL_LEDGER'), getJournalEntries)
-    .post(auditLog('POST_JOURNAL_ENTRY'), postJournalEntry);
+    // 🛡️ INJECT SHIELD: Reject bad data BEFORE auditing or posting to the DB
+    .post(validateBody(journalEntrySchema), auditLog('POST_JOURNAL_ENTRY'), postJournalEntry);
 
 router.route('/journals/:id/void')
-    .post(auditLog('VOID_JOURNAL_ENTRY'), voidJournalEntry);
+    // 🛡️ INJECT SHIELD: Secure the void endpoint
+    .post(validateBody(voidJournalSchema), auditLog('VOID_JOURNAL_ENTRY'), voidJournalEntry);
 
+// Accounts Payable Routes
 router.get('/ap/unpaid', getUnpaidBills);
 router.post('/ap/pay', recordPayment);
 

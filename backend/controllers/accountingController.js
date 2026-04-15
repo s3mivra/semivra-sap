@@ -192,41 +192,75 @@ exports.getJournalEntries = async (req, res) => {
     }
 };
 
+// @desc    Void a journal entry and reverse account balances (SECURED & ACID COMPLIANT)
+// @route   PUT /api/accounting/journals/:id/void
+// @access  Private (Admin / Super Admin)
 exports.voidJournalEntry = async (req, res) => {
+    // 🛡️ 1. Start the ACID Transaction Session
+    const session = await mongoose.startSession();
+    
     try {
-        const { id } = req.params;
-        const { voidReason } = req.body;
-        const targetDivision = getDivision(req);
+        await session.withTransaction(async () => {
+            const { id } = req.params;
+            const { voidReason } = req.body;
+            
+            // 🛡️ 2. Multi-Tenant Lock
+            const targetDivision = getDivision(req);
 
-        if (!voidReason) return res.status(400).json({ success: false, message: "A reason is required to void." });
-
-        // 🏢 Locked to division
-        const entry = await JournalEntry.findOne({ _id: id, division: targetDivision });
-        if (!entry) return res.status(404).json({ success: false, message: "Entry not found or access denied." });
-        if (entry.status === 'Voided') return res.status(400).json({ success: false, message: "Already voided." });
-
-        for (let line of entry.lines) {
-            const account = await Account.findOne({ _id: line.account, division: targetDivision });
-            if (account) {
-                const accType = account.accountType || account.type;
-                if (['Asset', 'Expense'].includes(accType)) {
-                    account.currentBalance -= (Number(line.debit) || 0) - (Number(line.credit) || 0);
-                } else {
-                    account.currentBalance -= (Number(line.credit) || 0) - (Number(line.debit) || 0);
-                }
-                await account.save();
+            if (!voidReason) {
+                throw new Error("A reason is required to void a journal entry.");
             }
-        }
 
-        entry.status = 'Voided';
-        entry.voidReason = voidReason;
-        entry.voidedAt = Date.now();
-        entry.voidedBy = req.user.id || req.user._id;
-        await entry.save();
+            // 3. Fetch the entry, locked to the current session and division
+            const entry = await JournalEntry.findOne({ 
+                _id: id, 
+                division: targetDivision 
+            }).session(session);
 
-        res.status(200).json({ success: true, message: "Entry successfully voided.", data: entry });
+            if (!entry) throw new Error("Journal Entry not found or access denied.");
+            if (entry.status === 'Voided') throw new Error("This entry is already voided.");
+
+            // 4. Reverse the Account Balances
+            for (let line of entry.lines) {
+                const account = await Account.findOne({ 
+                    _id: line.account, 
+                    division: targetDivision 
+                }).session(session);
+
+                if (account) {
+                    const accType = account.accountType || account.type;
+                    
+                    // Standard GAAP Reversals
+                    if (['Asset', 'Expense'].includes(accType)) {
+                        account.currentBalance -= (Number(line.debit) || 0) - (Number(line.credit) || 0);
+                    } else {
+                        account.currentBalance -= (Number(line.credit) || 0) - (Number(line.debit) || 0);
+                    }
+                    
+                    // Save the reversed balance inside the transaction
+                    await account.save({ session });
+                }
+            }
+
+            // 5. Update the Journal Entry Status
+            entry.status = 'Voided';
+            entry.voidReason = voidReason;
+            entry.voidedAt = Date.now();
+            entry.voidedBy = req.user.id || req.user._id;
+            
+            // Save the entry inside the transaction
+            await entry.save({ session });
+        });
+
+        // If the code reaches here, the transaction was successfully committed!
+        res.status(200).json({ success: true, message: "Journal Entry successfully voided and balances reversed." });
+        
     } catch (error) {
+        console.error("Void Transaction Error:", error);
         res.status(500).json({ success: false, message: error.message });
+    } finally {
+        // 🛡️ 6. Always clean up the session to prevent memory leaks
+        session.endSession();
     }
 };
 // ==========================================

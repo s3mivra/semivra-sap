@@ -90,9 +90,16 @@ exports.processCheckout = async (req, res) => {
                 productInfo.currentStock -= item.quantity;
                 await productInfo.save();
 
+                // INSIDE processCheckout()
+
                 await StockMovement.create({
-                    product: item.product, warehouse: warehouseId, type: 'OUT',
-                    quantity: item.quantity, reference: `POS Sale: ${orNumber}`, processedBy: req.user.id
+                    product: item.product, 
+                    warehouse: warehouseId, 
+                    type: 'OUT',
+                    quantity: item.quantity, 
+                    reference: `POS Sale: ${orNumber}`, 
+                    processedBy: req.user.id,
+                    division: getDivision(req) // 🛡️ ADD THIS LINE: Locks movement to the tenant
                 });
             }
         }
@@ -126,18 +133,20 @@ exports.processCheckout = async (req, res) => {
             const entryCount = await JournalEntry.countDocuments();
             const entryNumber = `JRN-${new Date().getFullYear()}-${String(entryCount + 1).padStart(5, '0')}`;
 
+            // INSIDE processCheckout()
+
             await JournalEntry.create({
-                entryNumber, date: Date.now(), description: `POS Sale - ${orNumber} (${customerName})`, sourceDocument: sale._id,
+                entryNumber, 
+                date: Date.now(), 
+                description: `POS Sale - ${orNumber} (${customerName})`, 
+                sourceDocument: sale._id,
+                division: getDivision(req), // 🛡️ ADD THIS LINE: Prevents GL contamination
                 lines: [
-                    // 1. The Sales Transaction (Money In)
-                    { account: assetAccount._id, debit: finalTotalAmount, credit: 0, memo: paymentMethod === 'AR' ? 'Debt Owed' : 'Customer Payment' },
-                    { account: discountAccount._id, debit: discountAmount, credit: 0, memo: 'Discount Given' },
-                    { account: revenueAccount._id, debit: 0, credit: grossSubtotal, memo: 'Gross Sales' },
-                    { account: vatAccount._id, debit: 0, credit: vatAmount, memo: 'Output VAT' },
-                    
-                    // 2. NEW: The Costing Transaction (Inventory Out)
-                    { account: cogsAccount._id, debit: totalCOGS, credit: 0, memo: 'Cost of inventory sold' },
-                    { account: inventoryAccount._id, debit: 0, credit: totalCOGS, memo: 'Reduction in inventory value' }
+                    { account: cashAcc._id, debit: totalAmount, credit: 0, memo: 'POS Receipt' },
+                    { account: salesAcc._id, debit: 0, credit: vatableSales, memo: 'POS Sales Revenue' },
+                    { account: vatAcc._id, debit: 0, credit: vatAmount, memo: 'Output VAT' },
+                    { account: cogsAcc._id, debit: totalCost, credit: 0, memo: 'Cost of Goods Sold' },
+                    { account: invAcc._id, debit: 0, credit: totalCost, memo: 'Inventory Reduction' }
                 ],
                 postedBy: req.user.id
             });
@@ -197,13 +206,16 @@ exports.processRefund = async (req, res) => {
                 
                 totalCOGS += (item.quantity * (productInfo.averageCost || 0));
 
+                // INSIDE processRefund()
+
                 await StockMovement.create({
                     product: item.product,
                     warehouse: req.body.warehouseId || null, 
                     type: 'IN',
                     quantity: item.quantity,
                     reference: `Refunded OR: ${sale.orNumber || 'Unknown'}`,
-                    processedBy: cashierId // <-- FIXED
+                    processedBy: cashierId,
+                    division: getDivision(req) // 🛡️ ADD THIS LINE: Returns stock to the CORRECT tenant
                 });
             }
         }

@@ -1,17 +1,20 @@
-const Joi = require('joi');
-
-exports.validateBody = (schema) => {
+const validateBody = (schema) => {
     return (req, res, next) => {
-        // abortEarly: false ensures we return ALL validation errors at once, not just the first one
+        // validate the request body against the provided Joi schema
         const { error } = schema.validate(req.body, { abortEarly: false, stripUnknown: true });
         
         if (error) {
-            const errorMessages = error.details.map(detail => detail.message);
+            // Map the Joi errors into a clean array of readable messages
+            const errorMessages = error.details.map(detail => detail.message.replace(/"/g, ''));
             return res.status(400).json({ 
-                error: 'Validation Failed', 
-                details: errorMessages 
+                success: false, 
+                message: 'Invalid request data', 
+                errors: errorMessages 
             });
         }
-        next();
+        
+        next(); // Data is perfectly valid, proceed to the controller
     };
 };
+
+module.exports = { validateBody };
