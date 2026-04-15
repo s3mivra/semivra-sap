@@ -44,6 +44,6 @@ router.route('/journals/:id/void')
 
 // Accounts Payable Routes
 router.get('/ap/unpaid', getUnpaidBills);
-router.post('/ap/pay', recordPayment);
+router.post('/ap/pay', authorize('Admin', 'Super Admin'), recordPayment);
 
 module.exports = router;

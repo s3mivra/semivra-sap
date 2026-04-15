@@ -19,3 +19,9 @@ export const updateProduct = async (id, productData) => {
     // Make sure 'api' is whatever you named your Axios instance in this file
     return await api.put(`/products/${id}`, productData); 
 };
+
+// 🛡️ NEW: The missing delete function!
+export const deleteProduct = async (id) => {
+    const response = await api.delete(`/products/${id}`);
+    return response.data;
+};

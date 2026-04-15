@@ -1,8 +1,8 @@
 const express = require('express');
 const { 
-    createUnit, getUnits, 
+    createUnit, getUnits, updateUnit, deleteUnit,
     createWarehouse, getWarehouses, 
-    recordMovement, getStockHistory 
+    recordMovement, getStockHistory, recordProduction
 } = require('../controllers/inventoryController');
 const { protect, authorize } = require('../middleware/auth');
 const auditLog = require('../middleware/auditLog');
@@ -17,7 +17,10 @@ router.get('/warehouses', getWarehouses);
 router.use(protect);
 router.use(authorize('Admin', 'Super Admin'));
 
-router.post('/units', auditLog('CREATE_UNIT'), createUnit);
+router.post('/units', authorize('Admin', 'Super Admin', 'Manage Inventory'), auditLog('CREATE_UNIT'), createUnit);
+router.put('/units/:id', authorize('Admin', 'Super Admin', 'Manage Inventory'), auditLog('UPDATE_UNIT'), updateUnit);
+router.delete('/units/:id', authorize('Admin', 'Super Admin', 'Manage Inventory'), auditLog('DELETE_UNIT'),  deleteUnit);
+router.post('/produce', authorize('Admin', 'Super Admin', 'Kitchen', 'Cashier'), recordProduction);
 router.post('/warehouses', auditLog('CREATE_WAREHOUSE'), createWarehouse);
 
 router.post('/movements', auditLog('RECORD_STOCK_MOVEMENT'), recordMovement);

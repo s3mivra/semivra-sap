@@ -36,7 +36,7 @@ const AdminAP = () => {
                 purchaseOrderId: payingBill._id,
                 amount: Number(paymentAmount)
             });
-            setStatus({ type: 'success', message: `Payment of $${paymentAmount} recorded successfully!` });
+            setStatus({ type: 'success', message: `Payment of ₱${paymentAmount} recorded successfully!` });
             setPayingBill(null);
             loadBills(); // Refresh the list
         } catch (error) {
@@ -79,8 +79,8 @@ const AdminAP = () => {
                                 <tr key={bill._id} style={{ borderBottom: '1px solid #eee' }}>
                                     <td style={{ padding: '15px', fontWeight: 'bold', color: '#34495e' }}>{bill.poNumber}</td>
                                     <td style={{ padding: '15px', color: '#2c3e50' }}>{bill.supplier?.name || 'Unknown Supplier'}</td>
-                                    <td style={{ padding: '15px', textAlign: 'right', color: '#7f8c8d' }}>${bill.totalAmount.toFixed(2)}</td>
-                                    <td style={{ padding: '15px', textAlign: 'right', fontWeight: 'bold', color: '#e74c3c' }}>${bill.balance.toFixed(2)}</td>
+                                    <td style={{ padding: '15px', textAlign: 'right', color: '#7f8c8d' }}>₱{Number(bill.amount || 0).toFixed(2)}</td>
+                                    <td style={{ padding: '15px', textAlign: 'right', fontWeight: 'bold', color: '#e74c3c' }}>₱{Number(bill.balanceDue || 0).toFixed(2)}</td>
                                     <td style={{ padding: '15px', textAlign: 'center' }}>
                                         <button 
                                             onClick={() => handlePayClick(bill)}
@@ -105,7 +105,7 @@ const AdminAP = () => {
                         
                         <form onSubmit={submitPayment}>
                             <div style={{ marginBottom: '15px' }}>
-                                <label style={{ display: 'block', fontSize: '12px', marginBottom: '5px', fontWeight: 'bold' }}>Payment Amount ($)</label>
+                                <label style={{ display: 'block', fontSize: '12px', marginBottom: '5px', fontWeight: 'bold' }}>Payment Amount (₱)</label>
                                 <input 
                                     type="number" 
                                     step="0.01" 
@@ -115,7 +115,7 @@ const AdminAP = () => {
                                     onChange={e => setPaymentAmount(e.target.value)} 
                                     style={{ width: '100%', padding: '10px', borderRadius: '4px', border: '1px solid #ccc', fontSize: '16px' }}
                                 />
-                                <span style={{ fontSize: '11px', color: '#95a5a6' }}>Max amount: ${payingBill.balance.toFixed(2)}</span>
+                                <span style={{ fontSize: '11px', color: '#95a5a6' }}>Max amount: ₱{Number(payingBill.balance || 0).toFixed(2)}</span>
                             </div>
                             
                             <div style={{ display: 'flex', gap: '10px', marginTop: '20px' }}>

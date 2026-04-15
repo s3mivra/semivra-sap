@@ -1,17 +1,10 @@
 const mongoose = require('mongoose');
-const User = require('../models/User');
+const EmployeeProfile = require('../models/EmployeeProfile'); // 🛡️ Now using the dedicated HR model
 const PayrollRun = require('../models/PayrollRun');
 const Payslip = require('../models/Payslip');
 const JournalEntry = require('../models/JournalEntry');
 const Account = require('../models/Account');
-
-// 🛡️ Helper to extract tenant ID
-const getDivision = (req) => {
-    if (req.user?.role?.level === 100) {
-        return req.headers['x-division-id'] || req.body.division;
-    }
-    return req.user?.division;
-};
+const { getDivision } = require('../utils/divisionHelper'); // 🛡️ Centralized tenant helper
 
 // @desc    Step 1: Draft a new Payroll Run
 exports.draftPayroll = async (req, res) => {
@@ -24,15 +17,15 @@ exports.draftPayroll = async (req, res) => {
 
             if (!targetDivision) throw new Error("Division ID is required for multi-tenant isolation.");
 
-            // 1. Fetch eligible employees strictly scoped to this tenant
-            const employees = await User.find({ 
+            // 1. Fetch eligible employees strictly scoped to this tenant using the HR model
+            const employees = await EmployeeProfile.find({ 
                 division: targetDivision,
-                'compensation.baseRate': { $gt: 0 },
+                baseRate: { $gt: 0 },
                 isActive: true // Don't pay deactivated employees
             }).session(session);
 
             if (employees.length === 0) {
-                throw new Error('No active employees found with compensation data for this division.');
+                throw new Error('No active employees found with compensation data. Please add employees to the HR module first.');
             }
 
             let totalGross = 0;
@@ -44,13 +37,13 @@ exports.draftPayroll = async (req, res) => {
             for (let emp of employees) {
                 let grossPay = 0;
 
-                if (emp.compensation.payType === 'Salary') {
-                    grossPay = emp.compensation.baseRate / 12; 
+                if (emp.compensationType === 'Salary') {
+                    grossPay = emp.baseRate / 12; // Assuming monthly draft
                 } else {
-                    grossPay = emp.compensation.baseRate * 80; 
+                    grossPay = emp.baseRate * 80; // Assuming 80 hours per period
                 }
 
-                const taxDeduction = grossPay * (emp.compensation.taxRate || 0.20); 
+                const taxDeduction = grossPay * 0.20; // Default 20% tax rate
                 const netPay = grossPay - taxDeduction;
 
                 totalGross += grossPay;
@@ -67,9 +60,9 @@ exports.draftPayroll = async (req, res) => {
                 });
             }
 
-            // 3. Create the Master Batch (Notice the array syntax for session creation)
+            // 3. Create the Master Batch
             const runRecords = await PayrollRun.create([{
-                division: targetDivision, // 🛡️ Scope to tenant
+                division: targetDivision,
                 periodStart,
                 periodEnd,
                 status: 'Draft',
@@ -85,7 +78,6 @@ exports.draftPayroll = async (req, res) => {
             const payslipsToInsert = payslipsData.map(slip => ({ ...slip, payrollRun: payrollRun._id }));
             await Payslip.insertMany(payslipsToInsert, { session });
             
-            // We attach the data to the request object to use outside the transaction block
             req.payrollRunData = payrollRun;
         });
 
@@ -150,10 +142,10 @@ exports.approveAndPay = async (req, res) => {
                 postedBy: req.user.id
             }], { session });
 
-            // 3. Update the Actual Account Balances! (CRITICAL FIX)
-            expenseAccount.currentBalance = (expenseAccount.currentBalance || 0) + payrollRun.totalGrossPay; // Expense increases with Debit
-            taxLiabilityAccount.currentBalance = (taxLiabilityAccount.currentBalance || 0) + payrollRun.totalDeductions; // Liability increases with Credit
-            cashAccount.currentBalance = (cashAccount.currentBalance || 0) - payrollRun.totalNetPay; // Asset decreases with Credit
+            // 3. Update the Actual Account Balances!
+            expenseAccount.currentBalance = (expenseAccount.currentBalance || 0) + payrollRun.totalGrossPay; 
+            taxLiabilityAccount.currentBalance = (taxLiabilityAccount.currentBalance || 0) + payrollRun.totalDeductions; 
+            cashAccount.currentBalance = (cashAccount.currentBalance || 0) - payrollRun.totalNetPay; 
 
             await Promise.all([
                 expenseAccount.save({ session }),

@@ -1,14 +1,16 @@
 const mongoose = require('mongoose');
 
 const PurchaseOrderSchema = new mongoose.Schema({
-    poNumber: { type: String, required: true, unique: true },
+    // Tenant Lock
+    division: { type: mongoose.Schema.Types.ObjectId, ref: 'Division', required: true },
+    
+    poNumber: { type: String, required: true }, // Removed global unique: true
     supplier: { type: mongoose.Schema.Types.ObjectId, ref: 'Supplier', required: true },
     
-    // The items we are ordering
     items: [{
         product: { type: mongoose.Schema.Types.ObjectId, ref: 'Product', required: true },
         quantity: { type: Number, required: true },
-        unitCost: { type: Number, required: true } // What the supplier charges us
+        unitCost: { type: Number, required: true }
     }],
     
     totalAmount: { type: Number, required: true },
@@ -19,7 +21,6 @@ const PurchaseOrderSchema = new mongoose.Schema({
         default: 'Ordered' 
     },
     
-    // When the truck actually arrives
     receivedAt: { type: Date },
     receivingWarehouse: { type: mongoose.Schema.Types.ObjectId, ref: 'Warehouse' },
     paymentMethod: { type: String, enum: ['Cash', 'Terms'], default: 'Cash' },
@@ -27,5 +28,8 @@ const PurchaseOrderSchema = new mongoose.Schema({
     
     createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true }
 }, { timestamps: true });
+
+// Enforce unique PO Numbers only within the same division
+PurchaseOrderSchema.index({ division: 1, poNumber: 1 }, { unique: true });
 
 module.exports = mongoose.model('PurchaseOrder', PurchaseOrderSchema);

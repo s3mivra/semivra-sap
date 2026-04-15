@@ -4,8 +4,7 @@ const Account = require('../models/Account');
 const FinancialPeriod = require('../models/FinancialPeriod');
 
 // Helper for division extraction
-const getDivision = (req) => req.user.role === 'Super Admin' && req.body.division ? req.body.division : req.user.division;
-
+const { getDivision } = require('../utils/divisionHelper');
 // Get all periods for the division
 exports.getPeriods = async (req, res) => {
     try {

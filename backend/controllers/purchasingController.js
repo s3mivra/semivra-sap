@@ -4,20 +4,21 @@ const Product = require('../models/Product');
 const StockMovement = require('../models/StockMovement');
 const JournalEntry = require('../models/JournalEntry');
 const Account = require('../models/Account');
-const Bill = require('../models/Bill'); // 🚨 NEW: Import the AP Bill Model!
+const Bill = require('../models/Bill'); 
 const mongoose = require('mongoose');
+const { getDivision } = require('../utils/divisionHelper'); // 🛡️ NEW: Import Helper
 
 // --- SUPPLIER CRUD ---
 exports.createSupplier = async (req, res) => {
     try {
-        const supplier = await Supplier.create(req.body);
+        const supplier = await Supplier.create({ ...req.body, division: getDivision(req) }); // 🛡️
         res.status(201).json({ success: true, data: supplier });
     } catch (error) { res.status(400).json({ success: false, error: error.message }); }
 };
 
 exports.getSuppliers = async (req, res) => {
     try {
-        const suppliers = await Supplier.find({ isActive: true })
+        const suppliers = await Supplier.find({ isActive: true, division: getDivision(req) }) // 🛡️
             .populate('catalog.product', 'name sku'); 
         res.status(200).json({ success: true, data: suppliers });
     } catch (error) { res.status(500).json({ success: false, error: error.message }); }
@@ -27,7 +28,8 @@ exports.getSuppliers = async (req, res) => {
 exports.addCatalogItem = async (req, res) => {
     try {
         const { productId, defaultCost } = req.body;
-        const supplier = await Supplier.findById(req.params.id);
+        // 🛡️ Prevent modifying other divisions' suppliers
+        const supplier = await Supplier.findOne({ _id: req.params.id, division: getDivision(req) }); 
         
         if (!supplier) return res.status(404).json({ success: false, message: 'Supplier not found' });
 
@@ -51,6 +53,7 @@ exports.createPO = async (req, res) => {
         const { supplier, items, totalAmount, paymentMethod } = req.body;
 
         const newPO = await PurchaseOrder.create({
+            division: getDivision(req), // 🛡️
             poNumber: `PO-${Date.now()}`,
             supplier,
             items,
@@ -69,7 +72,7 @@ exports.createPO = async (req, res) => {
 
 exports.getPOs = async (req, res) => {
     try {
-        const pos = await PurchaseOrder.find()
+        const pos = await PurchaseOrder.find({ division: getDivision(req) }) // 🛡️
             .populate('supplier', 'name')
             .populate('items.product', 'name sku isPhysical')
             .sort({ createdAt: -1 });
@@ -87,8 +90,8 @@ exports.receivePO = async (req, res) => {
         const poId = req.params.id;
         const { warehouseId, paymentMethod } = req.body; 
 
-        // 🏢 ENTERPRISE FIX: Grab the secure division header
-        const targetDivision = req.headers['x-division-id'] || req.user?.division;
+        // 🏢 ENTERPRISE FIX: Use Centralized Helper
+        const targetDivision = getDivision(req);
         const divIdString = targetDivision?._id ? targetDivision._id.toString() : targetDivision?.toString();
 
         if (!divIdString) throw new Error("Division context is missing. Cannot receive PO.");

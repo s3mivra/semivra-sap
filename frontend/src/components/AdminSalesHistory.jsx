@@ -22,7 +22,7 @@ const AdminSalesHistory = () => {
     useEffect(() => { loadData(); }, []);
 
     const handleRefund = async (sale) => {
-        if (!window.confirm(`Are you sure you want to refund ${sale.orNumber} for $${sale.totalAmount.toFixed(2)}? This cannot be undone.`)) return;
+        if (!window.confirm(`Are you sure you want to refund ${sale.orNumber} for ₱${sale.totalAmount.toFixed(2)}? This cannot be undone.`)) return;
         
         // If the sale has physical items, we need to know where to put them back!
         let returnToWarehouse = null;
@@ -95,7 +95,7 @@ const AdminSalesHistory = () => {
                                 <td style={{ padding: '15px', color: '#7f8c8d' }}>{new Date(sale.createdAt).toLocaleString()}</td>
                                 <td style={{ padding: '15px', fontWeight: 'bold', color: '#2980b9' }}>{sale.customerName}</td>
                                 <td style={{ padding: '15px' }}>{sale.paymentMethod}</td>
-                                <td style={{ padding: '15px', textAlign: 'right', fontWeight: 'bold' }}>${sale.totalAmount.toFixed(2)}</td>
+                                <td style={{ padding: '15px', textAlign: 'right', fontWeight: 'bold' }}>₱{sale.totalAmount.toFixed(2)}</td>
                                 <td style={{ padding: '15px', textAlign: 'center' }}>
                                     {sale.isRefunded ? (
                                         <span style={{ padding: '4px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 'bold', backgroundColor: '#fdedec', color: '#c0392b' }}>REFUNDED</span>

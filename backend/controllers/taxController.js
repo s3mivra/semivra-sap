@@ -2,10 +2,7 @@ const Account = require('../models/Account');
 const Tax = require('../models/Tax'); // We will create this simple model next
 
 // 🛡️ Helper to extract tenant ID
-const getDivision = (req) => {
-    if (req.user?.role?.level === 100) return req.headers['x-division-id'] || req.body.division;
-    return req.user?.division;
-};
+const { getDivision } = require('../utils/divisionHelper');
 
 // ==========================================
 // 📊 REPORTING: The BIR / Statutory Summary

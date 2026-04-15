@@ -324,7 +324,7 @@ const AdminPOS = () => {
                                     <div style={{ fontSize: '11px', color: '#7f8c8d', marginBottom: '5px' }}>{p.sku}</div>
                                     <div style={{ fontWeight: 'bold', fontSize: '15px', marginBottom: '10px', color: '#2c3e50', minHeight: '40px' }}>{p.name}</div>
                                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                        <span style={{ fontWeight: 'bold', color: '#2c3e50', fontSize: '16px' }}>${p.price.toFixed(2)}</span>
+                                        <span style={{ fontWeight: 'bold', color: '#2c3e50', fontSize: '16px' }}>₱{p.price.toFixed(2)}</span>
                                         {p.isPhysical && (
                                             <span style={{ fontSize: '11px', backgroundColor: '#f8f9fa', padding: '3px 6px', borderRadius: '4px', color: '#6c757d', fontWeight: 'bold' }}>
                                                 Stock: {p.currentStock}
@@ -350,11 +350,11 @@ const AdminPOS = () => {
                                     <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: '1px solid #f0f0f0' }}>
                                         <div style={{ flex: 1 }}>
                                             <div style={{ fontWeight: 'bold', fontSize: '14px', color: '#2c3e50' }}>{item.product.name}</div>
-                                            <div style={{ color: '#7f8c8d', fontSize: '12px' }}>${item.price.toFixed(2)}</div>
+                                            <div style={{ color: '#7f8c8d', fontSize: '12px' }}>₱{item.price.toFixed(2)}</div>
                                         </div>
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                                             <input type="number" min="1" value={item.quantity} onChange={(e) => updateQuantity(item.product._id, e.target.value)} style={{ width: '50px', padding: '6px', textAlign: 'center', border: '1px solid #ccc', borderRadius: '4px' }} />
-                                            <div style={{ fontWeight: 'bold', width: '65px', textAlign: 'right', color: '#2c3e50' }}>${(item.price * item.quantity).toFixed(2)}</div>
+                                            <div style={{ fontWeight: 'bold', width: '65px', textAlign: 'right', color: '#2c3e50' }}>₱{(item.price * item.quantity).toFixed(2)}</div>
                                             <button onClick={() => removeFromCart(item.product._id)} style={{ background: 'none', border: 'none', color: '#e74c3c', cursor: 'pointer', fontSize: '18px', padding: '0 5px' }}>×</button>
                                         </div>
                                     </div>
@@ -369,7 +369,7 @@ const AdminPOS = () => {
                                     <input type="number" min="0" step="0.1" value={taxRate} onChange={(e) => setTaxRate(e.target.value)} style={{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid #ccc', textAlign: 'center' }} />
                                 </div>
                                 <div style={{ flex: 1 }}>
-                                    <label style={{ display: 'block', fontSize: '11px', color: '#8e44ad', marginBottom: '4px', textTransform: 'uppercase', fontWeight: 'bold' }}>Discount ($)</label>
+                                    <label style={{ display: 'block', fontSize: '11px', color: '#8e44ad', marginBottom: '4px', textTransform: 'uppercase', fontWeight: 'bold' }}>Discount (₱)</label>
                                     <input type="number" min="0" step="0.01" placeholder="0.00" value={discountAmount} onChange={(e) => setDiscountAmount(e.target.value)} style={{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid #8e44ad', textAlign: 'center', backgroundColor: '#f5eef8' }} />
                                 </div>
                                 <div style={{ flex: 2 }}>
@@ -385,21 +385,21 @@ const AdminPOS = () => {
 
                             <div style={{ backgroundColor: '#f4f6f7', padding: '15px', borderRadius: '6px', marginBottom: '15px' }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', color: '#7f8c8d', marginBottom: '6px' }}>
-                                    <span>Gross Subtotal:</span><span>${grossSubtotal.toFixed(2)}</span>
+                                    <span>Gross Subtotal:</span><span>₱{grossSubtotal.toFixed(2)}</span>
                                 </div>
                                 {Number(discountAmount) > 0 && (
                                     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', color: '#e74c3c', marginBottom: '6px', fontWeight: 'bold' }}>
-                                        <span>Discount Applied:</span><span>-${Number(discountAmount).toFixed(2)}</span>
+                                        <span>Discount Applied:</span><span>-₱{Number(discountAmount).toFixed(2)}</span>
                                     </div>
                                 )}
                                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', color: '#7f8c8d', marginBottom: '6px' }}>
-                                    <span>Vatable Sales:</span><span>${netSubtotal.toFixed(2)}</span>
+                                    <span>Vatable Sales:</span><span>₱{netSubtotal.toFixed(2)}</span>
                                 </div>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', color: '#7f8c8d', paddingBottom: '10px', borderBottom: '1px dashed #ccc', marginBottom: '10px' }}>
-                                    <span>VAT ({taxRate}%):</span><span>${vatAmount.toFixed(2)}</span>
+                                    <span>VAT ({taxRate}%):</span><span>₱{vatAmount.toFixed(2)}</span>
                                 </div>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '26px', fontWeight: '900', color: '#2c3e50' }}>
-                                    <span>Total:</span><span>${totalAmount.toFixed(2)}</span>
+                                    <span>Total:</span><span>₱{totalAmount.toFixed(2)}</span>
                                 </div>
                             </div>
 
@@ -441,10 +441,10 @@ const AdminPOS = () => {
                                     <tr key={idx}>
                                         <td style={{ paddingBottom: '5px' }}>
                                             <div>{item.product.name}</div>
-                                            <div>{item.quantity} x ${item.price.toFixed(2)}</div>
+                                            <div>{item.quantity} x ₱{item.price.toFixed(2)}</div>
                                         </td>
                                         <td style={{ textAlign: 'right', verticalAlign: 'bottom', paddingBottom: '5px' }}>
-                                            ${(item.quantity * item.price).toFixed(2)}
+                                            ₱{(item.quantity * item.price).toFixed(2)}
                                         </td>
                                     </tr>
                                 ))}
@@ -454,17 +454,17 @@ const AdminPOS = () => {
                         <div style={{ fontSize: '12px', borderBottom: '1px dashed black', paddingBottom: '10px', marginBottom: '15px' }}>
                             {receiptData.discountAmount > 0 && (
                                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                    <span>Discount:</span><span>-${receiptData.discountAmount.toFixed(2)}</span>
+                                    <span>Discount:</span><span>-₱{receiptData.discountAmount.toFixed(2)}</span>
                                 </div>
                             )}
                             <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                <span>Vatable Sales:</span><span>${receiptData.vatableSales.toFixed(2)}</span>
+                                <span>Vatable Sales:</span><span>₱{receiptData.vatableSales.toFixed(2)}</span>
                             </div>
                             <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                <span>VAT Amount:</span><span>${receiptData.vatAmount.toFixed(2)}</span>
+                                <span>VAT Amount:</span><span>₱{receiptData.vatAmount.toFixed(2)}</span>
                             </div>
                             <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 'bold', fontSize: '16px', marginTop: '5px' }}>
-                                <span>TOTAL DUE:</span><span>${receiptData.totalAmount.toFixed(2)}</span>
+                                <span>TOTAL DUE:</span><span>₱{receiptData.totalAmount.toFixed(2)}</span>
                             </div>
                         </div>
 

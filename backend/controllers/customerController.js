@@ -1,12 +1,7 @@
 const Customer = require('../models/Customer');
 
 // Helper to enforce the division silo
-const getDivision = (req) => {
-    if (req.user.role === 'Super Admin' && (req.body.division || req.query.division)) {
-        return req.body.division || req.query.division;
-    }
-    return req.user.division;
-};
+const { getDivision } = require('../utils/divisionHelper');
 
 // 1. Create a New Customer
 exports.createCustomer = async (req, res) => {

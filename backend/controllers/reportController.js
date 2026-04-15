@@ -3,10 +3,7 @@ const Account = require('../models/Account');
 const mongoose = require('mongoose');
 
 // 🛡️ Helper to extract tenant ID
-const getDivision = (req) => {
-    if (req.user?.role?.level === 100) return req.headers['x-division-id'] || req.body.division;
-    return req.user?.division;
-};
+const { getDivision } = require('../utils/divisionHelper');
 
 // ==========================================
 // 1. BALANCE SHEET (Snapshot of Accounts)

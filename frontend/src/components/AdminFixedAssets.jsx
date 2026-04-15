@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { fetchAssets, registerAsset, runDepreciation } from '../services/fixedAssetService';
-import { Monitor, CheckCircle, AlertTriangle, Plus, Settings } from 'lucide-react';
+import { Monitor, CheckCircle, AlertTriangle, Plus, Settings, Loader } from 'lucide-react';
 
 const AdminFixedAssets = () => {
     const [assets, setAssets] = useState([]);
@@ -8,13 +8,13 @@ const AdminFixedAssets = () => {
     const [status, setStatus] = useState({ type: '', message: '' });
     const [isProcessing, setIsProcessing] = useState(false);
 
-    // Form State
     const [form, setForm] = useState({
+        assetCode: '',
         assetName: '',
         purchaseDate: '',
         purchasePrice: '',
         salvageValue: '0',
-        usefulLifeMonths: '60' // Default 5 years
+        usefulLifeMonths: '60' 
     });
     
     const [depreciationPeriod, setDepreciationPeriod] = useState(new Date().toISOString().substring(0, 7));
@@ -46,7 +46,7 @@ const AdminFixedAssets = () => {
                 usefulLifeMonths: Number(form.usefulLifeMonths)
             });
             setStatus({ type: 'success', message: 'Asset registered successfully.' });
-            setForm({ assetName: '', purchaseDate: '', purchasePrice: '', salvageValue: '0', usefulLifeMonths: '60' });
+            setForm({ assetCode: '', assetName: '', purchaseDate: '', purchasePrice: '', salvageValue: '0', usefulLifeMonths: '60' });
             loadData();
         } catch (error) {
             setStatus({ type: 'error', message: error.response?.data?.error || 'Failed to register asset.' });
@@ -72,131 +72,157 @@ const AdminFixedAssets = () => {
         }
     };
 
-    const formatMoney = (amount) => `$${(Number(amount) || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}`;
+    const formatMoney = (amount) => `₱${(Number(amount) || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}`;
 
-    if (loading) return <div className="p-8 text-slate-500">Loading Asset Register...</div>;
+    if (loading) return <div style={{ padding: '20px' }}>Loading Asset Register...</div>;
 
     return (
-        <div className="max-w-7xl mx-auto p-6">
-            <div className="mb-8 flex justify-between items-end">
-                <div>
-                    <h1 className="text-3xl font-bold text-slate-800 flex items-center gap-3">
-                        <Monitor className="text-indigo-600" size={32} />
-                        Fixed Assets
-                    </h1>
-                    <p className="text-slate-500 mt-2">Manage company property and run automated depreciation schedules.</p>
-                </div>
-                
-                {/* Depreciation Action Box */}
-                <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex items-center gap-4">
+        <div style={{ padding: '20px', maxWidth: '1200px', margin: '0 auto', fontFamily: 'sans-serif' }}>
+            
+            {/* HEADER */}
+            <div style={{ borderBottom: '2px solid #eee', paddingBottom: '10px', marginBottom: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <Monitor size={28} color="#2c3e50" />
                     <div>
-                        <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Target Period</label>
+                        <h2 style={{ margin: 0, color: '#2c3e50' }}>Fixed Assets</h2>
+                        <p style={{ margin: 0, fontSize: '13px', color: '#7f8c8d' }}>Property & Depreciation Management</p>
+                    </div>
+                </div>
+                <span style={{ fontSize: '12px', padding: '4px 8px', backgroundColor: '#e8f8f5', color: '#27ae60', borderRadius: '4px', fontWeight: 'bold' }}>
+                    Ledger Integrated
+                </span>
+            </div>
+
+            {/* STATUS MESSAGES */}
+            {status.message && (
+                <div style={{ padding: '12px', marginBottom: '20px', borderRadius: '4px', display: 'flex', alignItems: 'center', gap: '10px', backgroundColor: status.type === 'success' ? '#e8f8f5' : '#fdedec', color: status.type === 'success' ? '#27ae60' : '#c0392b' }}>
+                    {status.type === 'success' ? <CheckCircle size={18} /> : <AlertTriangle size={18} />}
+                    <strong>{status.message}</strong>
+                </div>
+            )}
+
+            {/* DEPRECIATION ENGINE BAR */}
+            <div style={{ backgroundColor: '#ebf5fb', border: '1px solid #a9cce3', borderRadius: '8px', padding: '20px', marginBottom: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '15px' }}>
+                <div>
+                    <h3 style={{ margin: '0 0 5px 0', color: '#2980b9' }}>Depreciation Engine</h3>
+                    <p style={{ margin: 0, fontSize: '12px', color: '#34495e' }}>Calculates straight-line decay and posts automatically to the GL.</p>
+                </div>
+                <div style={{ display: 'flex', gap: '10px', alignItems: 'flex-end' }}>
+                    <div>
+                        <label style={{ display: 'block', fontSize: '12px', marginBottom: '5px', fontWeight: 'bold', color: '#2c3e50' }}>Target Period</label>
                         <input 
                             type="month" 
                             value={depreciationPeriod}
                             onChange={(e) => setDepreciationPeriod(e.target.value)}
-                            className="border border-slate-300 rounded px-3 py-1.5 text-sm outline-none focus:border-indigo-500"
+                            style={{ padding: '8px', borderRadius: '4px', border: '1px solid #ccc' }}
                         />
                     </div>
                     <button 
                         onClick={handleRunDepreciation}
                         disabled={isProcessing}
-                        className="bg-slate-900 hover:bg-slate-800 text-white font-bold py-2 px-4 rounded-lg flex items-center gap-2 text-sm disabled:opacity-50"
+                        style={{ padding: '8px 16px', height: '35px', backgroundColor: '#2980b9', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '8px', opacity: isProcessing ? 0.7 : 1 }}
                     >
-                        <Settings size={16} />
-                        Run Depreciation
+                        {isProcessing ? <Loader size={16} className="animate-spin" /> : <Settings size={16} />}
+                        Run Engine
                     </button>
                 </div>
             </div>
 
-            {status.message && (
-                <div className={`p-4 rounded-lg mb-6 flex items-center gap-3 ${status.type === 'success' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-red-50 text-red-700 border border-red-200'}`}>
-                    {status.type === 'success' ? <CheckCircle size={20} /> : <AlertTriangle size={20} />}
-                    <span className="font-semibold text-sm">{status.message}</span>
-                </div>
-            )}
-
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                {/* Register Form */}
-                <div className="lg:col-span-1">
-                    <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-6">
-                        <h2 className="text-lg font-bold text-slate-800 border-b border-slate-100 pb-3 mb-5 flex items-center gap-2">
-                            <Plus size={20} className="text-indigo-500" />
-                            Register New Asset
-                        </h2>
-                        <form onSubmit={handleRegister} className="space-y-4">
-                            <div>
-                                <label className="block text-sm font-medium text-slate-700 mb-1">Asset Name</label>
-                                <input required type="text" value={form.assetName} onChange={e => setForm({...form, assetName: e.target.value})} className="w-full border border-slate-300 p-2 rounded outline-none focus:border-indigo-500" placeholder="e.g., Delivery Truck #1" />
-                            </div>
-                            <div>
-                                <label className="block text-sm font-medium text-slate-700 mb-1">Purchase Date</label>
-                                <input required type="date" value={form.purchaseDate} onChange={e => setForm({...form, purchaseDate: e.target.value})} className="w-full border border-slate-300 p-2 rounded outline-none focus:border-indigo-500" />
-                            </div>
-                            <div>
-                                <label className="block text-sm font-medium text-slate-700 mb-1">Purchase Price ($)</label>
-                                <input required type="number" min="0" step="0.01" value={form.purchasePrice} onChange={e => setForm({...form, purchasePrice: e.target.value})} className="w-full border border-slate-300 p-2 rounded outline-none focus:border-indigo-500" />
-                            </div>
-                            <div className="grid grid-cols-2 gap-4">
-                                <div>
-                                    <label className="block text-sm font-medium text-slate-700 mb-1">Salvage Value</label>
-                                    <input required type="number" min="0" step="0.01" value={form.salvageValue} onChange={e => setForm({...form, salvageValue: e.target.value})} className="w-full border border-slate-300 p-2 rounded outline-none focus:border-indigo-500" />
-                                </div>
-                                <div>
-                                    <label className="block text-sm font-medium text-slate-700 mb-1">Life (Months)</label>
-                                    <input required type="number" min="1" value={form.usefulLifeMonths} onChange={e => setForm({...form, usefulLifeMonths: e.target.value})} className="w-full border border-slate-300 p-2 rounded outline-none focus:border-indigo-500" />
-                                </div>
-                            </div>
-                            <button type="submit" disabled={isProcessing} className="w-full mt-4 bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2.5 rounded-lg transition-colors disabled:opacity-50">
-                                Save Asset
-                            </button>
-                        </form>
-                    </div>
-                </div>
-
-                {/* Asset Register Table */}
-                <div className="lg:col-span-2">
-                    <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
-                        <div className="bg-slate-50 border-b border-slate-200 p-5">
-                            <h2 className="text-lg font-bold text-slate-800">Asset Register</h2>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '20px' }}>
+                
+                {/* LEFT: REGISTER FORM */}
+                <div style={{ backgroundColor: '#fff', padding: '20px', borderRadius: '8px', boxShadow: '0 2px 4px rgba(0,0,0,0.1)', height: 'fit-content' }}>
+                    <h3 style={{ margin: '0 0 15px 0', display: 'flex', alignItems: 'center', gap: '8px', color: '#2c3e50', borderBottom: '1px solid #eee', paddingBottom: '10px' }}>
+                        <Plus size={18} /> Register New Asset
+                    </h3>
+                    <form onSubmit={handleRegister} style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
+                        <div>
+                            <label style={{ display: 'block', fontSize: '12px', marginBottom: '5px', color: '#7f8c8d' }}>Asset Code</label>
+                            <input required type="text" value={form.assetCode} onChange={e => setForm({...form, assetCode: e.target.value.toUpperCase()})} placeholder="EQP-001" style={{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid #ccc' }} />
                         </div>
-                        <div className="overflow-x-auto max-h-[600px] overflow-y-auto">
-                            <table className="w-full text-left border-collapse">
-                                <thead className="bg-white sticky top-0 shadow-sm">
+                        <div>
+                            <label style={{ display: 'block', fontSize: '12px', marginBottom: '5px', color: '#7f8c8d' }}>Name / Description</label>
+                            <input required type="text" value={form.assetName} onChange={e => setForm({...form, assetName: e.target.value})} placeholder="Delivery Truck" style={{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid #ccc' }} />
+                        </div>
+                        <div>
+                            <label style={{ display: 'block', fontSize: '12px', marginBottom: '5px', color: '#7f8c8d' }}>Purchase Date</label>
+                            <input required type="date" value={form.purchaseDate} onChange={e => setForm({...form, purchaseDate: e.target.value})} style={{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid #ccc' }} />
+                        </div>
+                        <div>
+                            <label style={{ display: 'block', fontSize: '12px', marginBottom: '5px', color: '#7f8c8d' }}>Purchase Price (₱)</label>
+                            <input required type="number" min="0" step="0.01" value={form.purchasePrice} onChange={e => setForm({...form, purchasePrice: e.target.value})} style={{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid #ccc' }} />
+                        </div>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                            <div>
+                                <label style={{ display: 'block', fontSize: '12px', marginBottom: '5px', color: '#7f8c8d' }}>Salvage Val</label>
+                                <input required type="number" min="0" step="0.01" value={form.salvageValue} onChange={e => setForm({...form, salvageValue: e.target.value})} style={{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid #ccc' }} />
+                            </div>
+                            <div>
+                                <label style={{ display: 'block', fontSize: '12px', marginBottom: '5px', color: '#7f8c8d' }}>Life (Mos)</label>
+                                <input required type="number" min="1" value={form.usefulLifeMonths} onChange={e => setForm({...form, usefulLifeMonths: e.target.value})} style={{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid #ccc' }} />
+                            </div>
+                        </div>
+                        <button type="submit" disabled={isProcessing} style={{ padding: '10px', backgroundColor: '#27ae60', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold', marginTop: '5px' }}>
+                            {isProcessing ? 'Saving...' : 'Register Asset'}
+                        </button>
+                    </form>
+                </div>
+
+                {/* RIGHT: ASSET TABLE */}
+                <div style={{ backgroundColor: '#fff', borderRadius: '8px', boxShadow: '0 2px 4px rgba(0,0,0,0.1)', overflow: 'hidden' }}>
+                    <div style={{ overflowX: 'auto' }}>
+                        <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '13px' }}>
+                            <thead style={{ backgroundColor: '#f8f9fa', color: '#7f8c8d' }}>
+                                <tr>
+                                    <th style={{ padding: '12px 15px', borderBottom: '2px solid #eee' }}>Asset Details</th>
+                                    <th style={{ padding: '12px 15px', borderBottom: '2px solid #eee', textAlign: 'right' }}>Cost</th>
+                                    <th style={{ padding: '12px 15px', borderBottom: '2px solid #eee', textAlign: 'right' }}>Accum. Depr.</th>
+                                    <th style={{ padding: '12px 15px', borderBottom: '2px solid #eee', textAlign: 'right' }}>Book Value</th>
+                                    <th style={{ padding: '12px 15px', borderBottom: '2px solid #eee', textAlign: 'center' }}>Status</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {assets.length === 0 ? (
                                     <tr>
-                                        <th className="py-3 px-4 font-bold text-slate-500 text-xs uppercase">Asset</th>
-                                        <th className="py-3 px-4 font-bold text-slate-500 text-xs uppercase text-right">Cost</th>
-                                        <th className="py-3 px-4 font-bold text-slate-500 text-xs uppercase text-right">Accum. Depr.</th>
-                                        <th className="py-3 px-4 font-bold text-slate-500 text-xs uppercase text-right">Book Value</th>
-                                        <th className="py-3 px-4 font-bold text-slate-500 text-xs uppercase text-center">Status</th>
+                                        <td colSpan="5" style={{ padding: '30px', textAlign: 'center', color: '#7f8c8d' }}>No assets registered yet.</td>
                                     </tr>
-                                </thead>
-                                <tbody className="divide-y divide-slate-100">
-                                    {assets.length === 0 ? (
-                                        <tr><td colSpan="5" className="p-8 text-center text-slate-500">No assets registered yet.</td></tr>
-                                    ) : (
-                                        assets.map(asset => (
-                                            <tr key={asset._id} className="hover:bg-slate-50">
-                                                <td className="py-3 px-4">
-                                                    <div className="font-semibold text-slate-800">{asset.assetName}</div>
-                                                    <div className="text-xs text-slate-500">Bought: {new Date(asset.purchaseDate).toLocaleDateString()}</div>
-                                                </td>
-                                                <td className="py-3 px-4 text-right font-mono text-slate-600">{formatMoney(asset.purchasePrice)}</td>
-                                                <td className="py-3 px-4 text-right font-mono text-red-500">{formatMoney(asset.accumulatedDepreciation)}</td>
-                                                <td className="py-3 px-4 text-right font-mono font-bold text-slate-800">{formatMoney(asset.currentBookValue)}</td>
-                                                <td className="py-3 px-4 text-center">
-                                                    <span className={`px-2 py-1 text-[10px] font-bold uppercase rounded-full ${asset.status === 'Active' ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-600'}`}>
-                                                        {asset.status}
-                                                    </span>
-                                                </td>
-                                            </tr>
-                                        ))
-                                    )}
-                                </tbody>
-                            </table>
-                        </div>
+                                ) : (
+                                    assets.map(asset => (
+                                        <tr key={asset._id} style={{ borderBottom: '1px solid #eee' }}>
+                                            <td style={{ padding: '12px 15px' }}>
+                                                <div style={{ fontWeight: 'bold', color: '#2c3e50' }}>{asset.assetCode}</div>
+                                                <div style={{ color: '#7f8c8d', fontSize: '12px' }}>{asset.assetName}</div>
+                                                <div style={{ color: '#bdc3c7', fontSize: '11px', marginTop: '2px' }}>Bought: {new Date(asset.purchaseDate).toLocaleDateString()}</div>
+                                            </td>
+                                            <td style={{ padding: '12px 15px', textAlign: 'right', color: '#7f8c8d' }}>
+                                                {formatMoney(asset.purchaseCost)}
+                                            </td>
+                                            <td style={{ padding: '12px 15px', textAlign: 'right', color: '#e74c3c' }}>
+                                                {formatMoney(asset.accumulatedDepreciation)}
+                                            </td>
+                                            <td style={{ padding: '12px 15px', textAlign: 'right', fontWeight: 'bold', color: '#27ae60' }}>
+                                                {formatMoney(asset.currentBookValue)}
+                                            </td>
+                                            <td style={{ padding: '12px 15px', textAlign: 'center' }}>
+                                                <span style={{ 
+                                                    padding: '4px 8px', 
+                                                    borderRadius: '4px', 
+                                                    fontSize: '11px', 
+                                                    fontWeight: 'bold',
+                                                    backgroundColor: asset.status === 'Active' ? '#e8f8f5' : '#f4f6f7',
+                                                    color: asset.status === 'Active' ? '#27ae60' : '#7f8c8d'
+                                                }}>
+                                                    {asset.status}
+                                                </span>
+                                            </td>
+                                        </tr>
+                                    ))
+                                )}
+                            </tbody>
+                        </table>
                     </div>
                 </div>
+
             </div>
         </div>
     );

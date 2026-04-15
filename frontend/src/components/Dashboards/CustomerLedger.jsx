@@ -50,9 +50,9 @@ const CustomerLedger = ({ customerId }) => {
                             <td className="p-3">{new Date(txn.date).toLocaleDateString()}</td>
                             <td className="p-3 font-mono">{txn.referenceNumber}</td>
                             <td className="p-3">{txn.description}</td>
-                            <td className="p-3 text-right">{txn.debit > 0 ? `$${txn.debit.toFixed(2)}` : '-'}</td>
-                            <td className="p-3 text-right">{txn.credit > 0 ? `$${txn.credit.toFixed(2)}` : '-'}</td>
-                            <td className="p-3 text-right font-semibold">${txn.runningBalance.toFixed(2)}</td>
+                            <td className="p-3 text-right">{txn.debit > 0 ? `₱${txn.debit.toFixed(2)}` : '-'}</td>
+                            <td className="p-3 text-right">{txn.credit > 0 ? `₱${txn.credit.toFixed(2)}` : '-'}</td>
+                            <td className="p-3 text-right font-semibold">₱{txn.runningBalance.toFixed(2)}</td>
                         </tr>
                     ))}
                     {ledger.transactions.length === 0 && (

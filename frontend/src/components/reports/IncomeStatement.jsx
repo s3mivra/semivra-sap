@@ -39,12 +39,12 @@ const IncomeStatement = ({ period }) => {
                 {pnl.Revenue.accounts.map(acc => (
                     <div key={acc.code} className="flex justify-between py-1 px-4 text-sm text-slate-700">
                         <span>{acc.code} - {acc.name}</span>
-                        <span>${acc.balance.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                        <span>₱{acc.balance.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
                     </div>
                 ))}
                 <div className="flex justify-between py-2 px-4 font-bold border-t border-slate-300 mt-2">
                     <span>Total Revenue</span>
-                    <span>${pnl.Revenue.total.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                    <span>₱{pnl.Revenue.total.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
                 </div>
             </div>
 
@@ -54,19 +54,19 @@ const IncomeStatement = ({ period }) => {
                 {pnl.COGS.accounts.map(acc => (
                     <div key={acc.code} className="flex justify-between py-1 px-4 text-sm text-slate-700">
                         <span>{acc.code} - {acc.name}</span>
-                        <span>${acc.balance.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                        <span>₱{acc.balance.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
                     </div>
                 ))}
                 <div className="flex justify-between py-2 px-4 font-bold border-t border-slate-300 mt-2">
                     <span>Total COGS</span>
-                    <span>${pnl.COGS.total.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                    <span>₱{pnl.COGS.total.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
                 </div>
             </div>
 
             {/* Gross Profit */}
             <div className="flex justify-between py-3 px-4 font-bold text-lg bg-slate-50 mb-6">
                 <span>Gross Profit</span>
-                <span>${(pnl.Revenue.total - pnl.COGS.total).toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                <span>₱{(pnl.Revenue.total - pnl.COGS.total).toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
             </div>
 
             {/* Operating Expenses */}
@@ -75,12 +75,12 @@ const IncomeStatement = ({ period }) => {
                 {pnl.Expense.accounts.map(acc => (
                     <div key={acc.code} className="flex justify-between py-1 px-4 text-sm text-slate-700">
                         <span>{acc.code} - {acc.name}</span>
-                        <span>${acc.balance.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                        <span>₱{acc.balance.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
                     </div>
                 ))}
                 <div className="flex justify-between py-2 px-4 font-bold border-t border-slate-300 mt-2">
                     <span>Total Expenses</span>
-                    <span>${pnl.Expense.total.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                    <span>₱{pnl.Expense.total.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
                 </div>
             </div>
 
@@ -88,7 +88,7 @@ const IncomeStatement = ({ period }) => {
             <div className="flex justify-between py-4 px-4 font-bold text-xl border-t-4 border-slate-800 border-double mt-8">
                 <span>Net Income</span>
                 <span className={pnl.NetIncome >= 0 ? "text-green-700" : "text-red-600"}>
-                    ${pnl.NetIncome.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                    ₱{pnl.NetIncome.toLocaleString(undefined, { minimumFractionDigits: 2 })}
                 </span>
             </div>
         </div>

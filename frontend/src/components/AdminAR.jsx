@@ -58,7 +58,7 @@ const AdminAR = () => {
         setStatus({ type: '', message: '' });
 
         if (Number(paymentForm.amount) <= 0 || Number(paymentForm.amount) > activeDebt.balanceDue) {
-            return setStatus({ type: 'error', message: `Invalid amount. Must be between $0.01 and $${activeDebt.balanceDue}` });
+            return setStatus({ type: 'error', message: `Invalid amount. Must be between ₱0.01 and ₱${activeDebt.balanceDue}` });
         }
 
         try {
@@ -68,7 +68,7 @@ const AdminAR = () => {
                 reference: paymentForm.reference
             });
 
-            setStatus({ type: 'success', message: `Successfully collected $${paymentForm.amount} from ${activeDebt.customerName}!` });
+            setStatus({ type: 'success', message: `Successfully collected ₱${paymentForm.amount} from ${activeDebt.customerName}!` });
             setActiveDebt(null); 
             loadData(); 
         } catch (error) {
@@ -91,7 +91,7 @@ const AdminAR = () => {
                     <h2 style={{ margin: 0, color: '#2c3e50' }}>Accounts Receivable (Outstanding)</h2>
                     <div style={{ backgroundColor: '#fdedec', padding: '10px 20px', borderRadius: '6px', border: '1px solid #fadbd8' }}>
                         <span style={{ fontSize: '12px', color: '#c0392b', fontWeight: 'bold', textTransform: 'uppercase' }}>Total Company Debt</span><br/>
-                        <span style={{ fontSize: '24px', color: '#c0392b', fontWeight: '900' }}>${totalOutstanding.toFixed(2)}</span>
+                        <span style={{ fontSize: '24px', color: '#c0392b', fontWeight: '900' }}>₱{totalOutstanding.toFixed(2)}</span>
                     </div>
                 </div>
 
@@ -119,8 +119,8 @@ const AdminAR = () => {
                                         <td style={{ padding: '12px', fontWeight: 'bold', fontFamily: 'monospace' }}>{sale.orNumber}</td>
                                         <td style={{ padding: '12px', color: '#7f8c8d' }}>{new Date(sale.createdAt).toLocaleDateString()}</td>
                                         <td style={{ padding: '12px', fontWeight: 'bold', color: '#2980b9' }}>{sale.customerName}</td>
-                                        <td style={{ padding: '12px', textAlign: 'right' }}>${sale.totalAmount.toFixed(2)}</td>
-                                        <td style={{ padding: '12px', textAlign: 'right', fontWeight: 'bold', color: '#c0392b' }}>${sale.balanceDue.toFixed(2)}</td>
+                                        <td style={{ padding: '12px', textAlign: 'right' }}>₱{sale.totalAmount.toFixed(2)}</td>
+                                        <td style={{ padding: '12px', textAlign: 'right', fontWeight: 'bold', color: '#c0392b' }}>₱{sale.balanceDue.toFixed(2)}</td>
                                         <td style={{ padding: '12px', textAlign: 'center', display: 'flex', gap: '8px', justifyContent: 'center' }}>
                                             {/* 💡 TWO BUTTONS NOW */}
                                             <button 
@@ -186,16 +186,16 @@ const AdminAR = () => {
                                         <div style={{ fontSize: '18px', fontWeight: 'bold', color: '#2980b9', marginBottom: '10px' }}>{activeDebt.customerName}</div>
                                         <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px', borderTop: '1px dashed #ccc', paddingTop: '10px' }}>
                                             <span style={{ color: '#7f8c8d' }}>Original Bill ({activeDebt.orNumber}):</span>
-                                            <span>${activeDebt.totalAmount.toFixed(2)}</span>
+                                            <span>₱{activeDebt.totalAmount.toFixed(2)}</span>
                                         </div>
                                         <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '16px', fontWeight: 'bold', color: '#c0392b', marginTop: '5px' }}>
                                             <span>Current Balance:</span>
-                                            <span>${activeDebt.balanceDue.toFixed(2)}</span>
+                                            <span>₱{activeDebt.balanceDue.toFixed(2)}</span>
                                         </div>
                                     </div>
 
                                     <div style={{ marginBottom: '15px' }}>
-                                        <label style={{ display: 'block', fontSize: '12px', marginBottom: '5px', fontWeight: 'bold', color: '#27ae60' }}>Amount to Pay ($)</label>
+                                        <label style={{ display: 'block', fontSize: '12px', marginBottom: '5px', fontWeight: 'bold', color: '#27ae60' }}>Amount to Pay (₱)</label>
                                         <input type="number" step="0.01" min="0.01" max={activeDebt.balanceDue} required value={paymentForm.amount} onChange={e => setPaymentForm({...paymentForm, amount: e.target.value})} style={{ width: '100%', padding: '12px', borderRadius: '4px', border: '2px solid #27ae60', fontSize: '18px', fontWeight: 'bold', backgroundColor: '#e8f8f5', color: '#27ae60', boxSizing: 'border-box' }} />
                                     </div>
 

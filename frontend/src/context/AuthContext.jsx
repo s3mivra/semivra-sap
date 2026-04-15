@@ -10,13 +10,20 @@ export const AuthProvider = ({ children }) => {
         return savedUser ? JSON.parse(savedUser) : null;
     });
 
+    // NEW: Initialize division state from Local Storage
+    const [divisionId, setDivisionId] = useState(() => {
+        return localStorage.getItem('activeDivision') || null;
+    });
+
     // Cross-tab synchronization
     useEffect(() => {
         const syncLogout = (event) => {
             // If another tab clears the token from localStorage, log this tab out instantly
             if (event.key === 'token' && event.newValue === null) {
                 setUser(null);
-                localStorage.removeItem('user'); // Also clear the user data
+                setDivisionId(null); // NEW: Sync division state
+                localStorage.removeItem('user'); 
+                localStorage.removeItem('activeDivision'); // NEW: Ensure storage is wiped
                 window.location.href = '/'; 
             }
         };
@@ -36,10 +43,12 @@ export const AuthProvider = ({ children }) => {
             // Super Admins (level 100) will select this via the Navbar later.
             if (data.user.division && data.user.role?.level !== 100) {
                 // Handle populated object vs raw ObjectId string
-                const divisionId = typeof data.user.division === 'object' 
+                const activeDiv = typeof data.user.division === 'object' 
                     ? data.user.division._id 
                     : data.user.division;
-                localStorage.setItem('activeDivision', divisionId);
+                
+                localStorage.setItem('activeDivision', activeDiv);
+                setDivisionId(activeDiv); // NEW: Set React state immediately
             }
             
             setUser(data.user);
@@ -62,12 +71,14 @@ export const AuthProvider = ({ children }) => {
             // 👇 THE FIX: Destroy the Super Admin's division memory on logout!
             localStorage.removeItem('activeDivision'); 
             
+            setDivisionId(null); // NEW: Clear React state
             setUser(null);
         }
     };
 
     return (
-        <AuthContext.Provider value={{ user, login, logout }}>
+        // NEW: Expose divisionId and setDivisionId so the Navbar and Dashboards can use them
+        <AuthContext.Provider value={{ user, divisionId, setDivisionId, login, logout }}>
             {children}
         </AuthContext.Provider>
     );

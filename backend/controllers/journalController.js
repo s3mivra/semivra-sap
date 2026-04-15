@@ -77,50 +77,57 @@ exports.getJournalEntries = async (req, res) => {
 };
 
 // 3. Void a Journal Entry (The Legal "Undo" Button)
+// INSIDE backend/controllers/journalController.js
+
 exports.voidJournalEntry = async (req, res) => {
+    const session = await mongoose.startSession();
+    
     try {
-        const { id } = req.params;
-        const { voidReason } = req.body;
+        await session.withTransaction(async () => {
+            const { id } = req.params;
+            const { voidReason } = req.body;
 
-        if (!voidReason) {
-            return res.status(400).json({ success: false, message: "A reason is required to void a journal entry." });
-        }
-
-        const entry = await JournalEntry.findById(id);
-
-        if (!entry) {
-            return res.status(404).json({ success: false, message: "Journal entry not found." });
-        }
-
-        if (entry.status === 'Voided') {
-            return res.status(400).json({ success: false, message: "This entry is already voided." });
-        }
-
-        // ⚖️ REVERSE THE LEDGER POSTING: Undo the math in the Chart of Accounts
-        for (let line of entry.lines) {
-            const account = await Account.findById(line.account); // or line.accountId based on your exact schema
-            if (account) {
-                // We do the exact opposite of the create function
-                if (['Asset', 'Expense'].includes(account.accountType)) {
-                    account.currentBalance -= (Number(line.debit) || 0) - (Number(line.credit) || 0);
-                } else {
-                    account.currentBalance -= (Number(line.credit) || 0) - (Number(line.debit) || 0);
-                }
-                await account.save();
+            if (!voidReason) {
+                throw new Error("A reason is required to void a journal entry.");
             }
-        }
 
-        // Mark the entry as voided with the audit trail
-        entry.status = 'Voided';
-        entry.voidReason = voidReason;
-        entry.voidedAt = Date.now();
-        entry.voidedBy = req.user._id; // Assuming auth middleware
-        
-        await entry.save();
+            const entry = await JournalEntry.findById(id).session(session);
 
-        res.status(200).json({ success: true, message: "Journal Entry successfully voided.", data: entry });
+            if (!entry) {
+                throw new Error("Journal entry not found.");
+            }
+
+            if (entry.status === 'Voided') {
+                throw new Error("This entry is already voided.");
+            }
+
+            for (let line of entry.lines) {
+                const account = await Account.findById(line.account).session(session);
+                if (account) {
+                    if (['Asset', 'Expense'].includes(account.accountType)) {
+                        account.currentBalance -= (Number(line.debit) || 0) - (Number(line.credit) || 0);
+                    } else {
+                        account.currentBalance -= (Number(line.credit) || 0) - (Number(line.debit) || 0);
+                    }
+                    await account.save({ session });
+                }
+            }
+
+            entry.status = 'Voided';
+            entry.voidReason = voidReason;
+            entry.voidedAt = Date.now();
+            entry.voidedBy = req.user._id;
+            
+            await entry.save({ session });
+        });
+
+        // We re-fetch the entry outside the transaction just to return the clean data if needed
+        const updatedEntry = await JournalEntry.findById(req.params.id);
+        res.status(200).json({ success: true, message: "Journal Entry successfully voided.", data: updatedEntry });
     } catch (error) {
         res.status(500).json({ success: false, message: error.message });
+    } finally {
+        session.endSession();
     }
 };
 

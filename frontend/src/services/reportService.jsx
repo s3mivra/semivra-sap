@@ -10,7 +10,7 @@ export const fetchIncomeStatement = async (startDate = '', endDate = '') => {
     return response.data;
 };
 
-export const fetchTrialBalance = async (date = '') => {
-    const response = await api.get(`/reports/trial-balance?date=${date}`);
-    return response.data;
+export const fetchTrialBalance = async (date) => {
+    // Passes the selected date query parameter back to your controller
+    return await api.get(`/reports/trial-balance?date=${date}`);
 };

@@ -6,12 +6,7 @@ const FinancialPeriod = require('../models/FinancialPeriod');
 const mongoose = require('mongoose');
 
 // Helper to get the active division (Super Admins can pass it in the body/query)
-const getDivision = (req) => {
-    if (req.user.role === 'Super Admin' && (req.body.division || req.query.division)) {
-        return req.body.division || req.query.division;
-    }
-    return req.user.division;
-};
+const { getDivision } = require('../utils/divisionHelper');
 
 // ==========================================
 // CHART OF ACCOUNTS (CoA) MANAGEMENT
@@ -195,71 +190,48 @@ exports.getJournalEntries = async (req, res) => {
 // @desc    Void a journal entry and reverse account balances (SECURED & ACID COMPLIANT)
 // @route   PUT /api/accounting/journals/:id/void
 // @access  Private (Admin / Super Admin)
+// INSIDE backend/controllers/accountingController.js
+
 exports.voidJournalEntry = async (req, res) => {
-    // 🛡️ 1. Start the ACID Transaction Session
     const session = await mongoose.startSession();
     
     try {
         await session.withTransaction(async () => {
             const { id } = req.params;
             const { voidReason } = req.body;
-            
-            // 🛡️ 2. Multi-Tenant Lock
             const targetDivision = getDivision(req);
 
-            if (!voidReason) {
-                throw new Error("A reason is required to void a journal entry.");
-            }
+            if (!voidReason) throw new Error("A reason is required to void.");
 
-            // 3. Fetch the entry, locked to the current session and division
-            const entry = await JournalEntry.findOne({ 
-                _id: id, 
-                division: targetDivision 
-            }).session(session);
+            // Notice we chain .session(session) to lock these reads/writes into the transaction
+            const entry = await JournalEntry.findOne({ _id: id, division: targetDivision }).session(session);
+            if (!entry) throw new Error("Entry not found or access denied.");
+            if (entry.status === 'Voided') throw new Error("Already voided.");
 
-            if (!entry) throw new Error("Journal Entry not found or access denied.");
-            if (entry.status === 'Voided') throw new Error("This entry is already voided.");
-
-            // 4. Reverse the Account Balances
             for (let line of entry.lines) {
-                const account = await Account.findOne({ 
-                    _id: line.account, 
-                    division: targetDivision 
-                }).session(session);
-
+                const account = await Account.findOne({ _id: line.account, division: targetDivision }).session(session);
                 if (account) {
                     const accType = account.accountType || account.type;
-                    
-                    // Standard GAAP Reversals
                     if (['Asset', 'Expense'].includes(accType)) {
                         account.currentBalance -= (Number(line.debit) || 0) - (Number(line.credit) || 0);
                     } else {
                         account.currentBalance -= (Number(line.credit) || 0) - (Number(line.debit) || 0);
                     }
-                    
-                    // Save the reversed balance inside the transaction
-                    await account.save({ session });
+                    await account.save({ session }); // Save using the transaction session
                 }
             }
 
-            // 5. Update the Journal Entry Status
             entry.status = 'Voided';
             entry.voidReason = voidReason;
             entry.voidedAt = Date.now();
             entry.voidedBy = req.user.id || req.user._id;
-            
-            // Save the entry inside the transaction
-            await entry.save({ session });
+            await entry.save({ session }); // Save using the transaction session
         });
 
-        // If the code reaches here, the transaction was successfully committed!
-        res.status(200).json({ success: true, message: "Journal Entry successfully voided and balances reversed." });
-        
+        res.status(200).json({ success: true, message: "Entry successfully voided." });
     } catch (error) {
-        console.error("Void Transaction Error:", error);
         res.status(500).json({ success: false, message: error.message });
     } finally {
-        // 🛡️ 6. Always clean up the session to prevent memory leaks
         session.endSession();
     }
 };
@@ -303,66 +275,89 @@ exports.getUnpaidBills = async (req, res) => {
 };
 
 exports.recordPayment = async (req, res) => {
+    // 🛡️ ACID Transaction: Lock the ledger so money doesn't disappear if a step fails!
+    const session = await mongoose.startSession();
+    session.startTransaction();
+
     try {
-        const { purchaseOrderId, amount } = req.body;
+        const { purchaseOrderId, amount } = req.body; // purchaseOrderId from frontend is actually the Bill's _id
         const targetDivision = getDivision(req);
 
-        const po = await PurchaseOrder.findOne({ _id: purchaseOrderId, division: targetDivision });
-        if (!po) return res.status(404).json({ success: false, message: 'PO not found or access denied' });
+        // 1. Find the BILL (Not the PO!)
+        const bill = await Bill.findOne({ _id: purchaseOrderId, division: targetDivision }).session(session);
+        if (!bill) throw new Error('Bill not found or access denied');
 
-        const currentBalance = po.balance !== undefined ? po.balance : po.totalAmount;
-        po.balance = currentBalance - amount;
+        if (amount > bill.balanceDue) throw new Error('Payment exceeds balance due');
 
-        if (po.balance <= 0) {
-            po.balance = 0;
-            po.status = 'Paid';
+        // 2. Update the Bill Balance
+        bill.balanceDue -= amount;
+        bill.status = bill.balanceDue <= 0 ? 'Paid' : 'Partial';
+        await bill.save({ session });
+
+        // 3. Sync the original Purchase Order balance
+        const po = await PurchaseOrder.findById(bill.purchaseOrder).session(session);
+        if (po) {
+            po.balance = (po.balance || po.totalAmount) - amount;
+            if (po.balance <= 0) {
+                po.balance = 0;
+                po.status = 'Paid';
+            }
+            await po.save({ session });
         }
-        await po.save();
 
-        // 🏢 ONLY search for AP and Cash accounts within this specific division!
+        // 4. Find the Core Accounting Ledgers
         const apAccount = await Account.findOne({ 
             division: targetDivision,
-            $or: [{ name: 'Accounts Payable' }, { accountName: 'Accounts Payable' }] 
-        });
+            $or: [{ name: /Accounts Payable/i }, { accountName: /Accounts Payable/i }] 
+        }).session(session);
+        
         const cashAccount = await Account.findOne({ 
             division: targetDivision,
-            $or: [{ name: 'Cash on Hand' }, { accountName: 'Cash on Hand' }, { name: 'Cash in Bank' }] 
-        }); 
+            $or: [{ name: /Cash/i }, { accountName: /Cash/i }] 
+        }).session(session); 
 
-        if (apAccount && cashAccount) {
-            const targetDate = Date.now();
-            const dDate = new Date(targetDate);
-            const period = `${dDate.getFullYear()}-${String(dDate.getMonth() + 1).padStart(2, '0')}`;
-            const entryCount = await JournalEntry.countDocuments({ period, division: targetDivision });
-            const entryNumber = `JRN-${period}-${String(entryCount + 1).padStart(4, '0')}`;
-
-            await JournalEntry.create({
-                division: targetDivision, // 🏢 Locked to division
-                entryNumber,
-                documentDate: targetDate,
-                date: targetDate,
-                period,
-                description: `Payment to Supplier for ${po.poNumber}`,
-                sourceDocument: po._id,
-                lines: [
-                    { account: apAccount._id, debit: amount, credit: 0, memo: 'Reducing AP Debt' },
-                    { account: cashAccount._id, debit: 0, credit: amount, memo: 'Cash paid to Supplier' }
-                ],
-                postedBy: req.user.id || req.user._id
-            });
-
-            apAccount.currentBalance = (apAccount.currentBalance || 0) - amount; 
-            cashAccount.currentBalance = (cashAccount.currentBalance || 0) - amount; 
-            
-            await apAccount.save();
-            await cashAccount.save();
-        } else {
-            console.error("CRITICAL: Missing AP or Cash accounts for this division!");
+        if (!apAccount || !cashAccount) {
+            throw new Error("CRITICAL: Missing 'Accounts Payable' or 'Cash' accounts in this division!");
         }
 
+        // 5. Post the Journal Entry
+        const targetDate = Date.now();
+        const dDate = new Date(targetDate);
+        const period = `${dDate.getFullYear()}-${String(dDate.getMonth() + 1).padStart(2, '0')}`;
+        const entryCount = await JournalEntry.countDocuments({ period, division: targetDivision }).session(session);
+        const entryNumber = `JRN-PAY-${period}-${String(entryCount + 1).padStart(4, '0')}`;
+
+        await JournalEntry.create([{
+            division: targetDivision,
+            entryNumber,
+            documentDate: targetDate,
+            date: targetDate,
+            period,
+            description: `Payment to Supplier for Bill (PO: ${po ? po.poNumber : 'Unknown'})`,
+            sourceDocument: bill._id,
+            lines: [
+                { account: apAccount._id, debit: amount, credit: 0, memo: 'Reducing AP Debt' },
+                { account: cashAccount._id, debit: 0, credit: amount, memo: 'Cash paid to Supplier' }
+            ],
+            postedBy: req.user.id || req.user._id
+        }], { session });
+
+        // 6. Update Running Account Balances
+        apAccount.currentBalance = (apAccount.currentBalance || 0) - amount; 
+        cashAccount.currentBalance = (cashAccount.currentBalance || 0) - amount; 
+        
+        await apAccount.save({ session });
+        await cashAccount.save({ session });
+
+        // ✅ Commit the transaction!
+        await session.commitTransaction();
         res.status(200).json({ success: true, message: 'Payment recorded successfully' });
     } catch (error) {
-        console.error("Payment Error:", error); 
-        res.status(500).json({ success: false, error: error.message });
+        // 🛑 Revert everything if anything failed
+        await session.abortTransaction();
+        console.error("Payment Error:", error.message); 
+        res.status(400).json({ success: false, error: error.message });
+    } finally {
+        session.endSession();
     }
 };

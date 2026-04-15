@@ -1,37 +1,38 @@
 const mongoose = require('mongoose');
-const FixedAsset = require('../models/FixedAsset'); // Ensure you have this model!
+const FixedAsset = require('../models/FixedAsset'); 
 const JournalEntry = require('../models/JournalEntry');
 const Account = require('../models/Account');
-
-const getDivision = (req) => {
-    if (req.user?.role?.level === 100) return req.headers['x-division-id'] || req.body.division;
-    return req.user?.division;
-};
+const { getDivision } = require('../utils/divisionHelper'); // 🛡️ Centralized tenant helper
 
 // @desc    Register a new Fixed Asset
 exports.registerAsset = async (req, res) => {
     try {
         const targetDivision = getDivision(req);
-        if (!targetDivision) return res.status(400).json({ error: 'Division ID required' });
+        if (!targetDivision) return res.status(400).json({ success: false, message: 'Division ID required' });
 
-        const { assetName, description, purchaseDate, purchasePrice, salvageValue, usefulLifeMonths } = req.body;
+        const { assetCode, assetName, description, purchaseDate, purchaseCost, salvageValue, usefulLifeMonths, assetAccount, expenseAccount, accumulatedDepreciationAccount } = req.body;
 
         const asset = await FixedAsset.create({
-            division: targetDivision,
+            division: targetDivision, // 🛡️ Scope to tenant
+            assetCode,
             assetName,
             description,
             purchaseDate,
-            purchasePrice,
+            purchaseCost,
             salvageValue,
             usefulLifeMonths,
-            currentBookValue: purchasePrice,
+            currentBookValue: purchaseCost, // Initial book value is the purchase cost
             accumulatedDepreciation: 0,
-            status: 'Active'
+            status: 'Active',
+            assetAccount,
+            expenseAccount,
+            accumulatedDepreciationAccount,
+            registeredBy: req.user.id
         });
 
         res.status(201).json({ success: true, data: asset });
     } catch (error) {
-        res.status(400).json({ error: error.message });
+        res.status(400).json({ success: false, error: error.message });
     }
 };
 
@@ -39,10 +40,11 @@ exports.registerAsset = async (req, res) => {
 exports.getAssets = async (req, res) => {
     try {
         const targetDivision = getDivision(req);
+        // 🛡️ Scope query to tenant
         const assets = await FixedAsset.find({ division: targetDivision }).sort({ purchaseDate: -1 });
         res.status(200).json({ success: true, data: assets });
     } catch (error) {
-        res.status(500).json({ error: error.message });
+        res.status(500).json({ success: false, error: error.message });
     }
 };
 
@@ -57,11 +59,11 @@ exports.runDepreciation = async (req, res) => {
 
             if (!targetDivision) throw new Error("Division ID required.");
 
-            // 1. Find all active assets that still have value to depreciate
+            // 1. Find all active assets scoped to this tenant
             const assets = await FixedAsset.find({ 
                 division: targetDivision, 
                 status: 'Active',
-                currentBookValue: { $gt: 0 } // Technically > salvageValue, but simplifying for MVP
+                currentBookValue: { $gt: 0 } 
             }).session(session);
 
             if (assets.length === 0) throw new Error("No active assets require depreciation.");
@@ -71,7 +73,6 @@ exports.runDepreciation = async (req, res) => {
 
             // 2. Calculate Straight-Line Depreciation
             for (const asset of assets) {
-                // If it's already at or below salvage value, skip it
                 if (asset.currentBookValue <= asset.salvageValue) {
                     asset.status = 'Fully Depreciated';
                     assetUpdates.push(asset.save({ session }));
@@ -79,13 +80,14 @@ exports.runDepreciation = async (req, res) => {
                 }
 
                 // Straight Line Math: (Cost - Salvage) / Useful Life
-                const monthlyDepreciation = (asset.purchasePrice - asset.salvageValue) / asset.usefulLifeMonths;
+                const monthlyDepreciation = (asset.purchaseCost - asset.salvageValue) / asset.usefulLifeMonths;
                 
-                // Ensure we don't depreciate past the salvage value on the final month
+                // Ensure we don't depreciate past the salvage value
                 const actualDepreciation = Math.min(monthlyDepreciation, asset.currentBookValue - asset.salvageValue);
 
                 asset.accumulatedDepreciation += actualDepreciation;
                 asset.currentBookValue -= actualDepreciation;
+                asset.lastDepreciationDate = Date.now();
                 
                 if (asset.currentBookValue <= asset.salvageValue) {
                     asset.status = 'Fully Depreciated';
@@ -115,8 +117,8 @@ exports.runDepreciation = async (req, res) => {
                 postingDate: Date.now(),
                 description: `Monthly Fixed Asset Depreciation for ${period}`,
                 lines: [
-                    { account: expenseAcc._id, debit: totalDepreciationExpense, credit: 0, memo: 'Depreciation Expense' },
-                    { account: accumDeprAcc._id, debit: 0, credit: totalDepreciationExpense, memo: 'Accumulated Depreciation' }
+                    { account: expenseAcc._id, debit: Number(totalDepreciationExpense.toFixed(2)), credit: 0, memo: 'Depreciation Expense' },
+                    { account: accumDeprAcc._id, debit: 0, credit: Number(totalDepreciationExpense.toFixed(2)), memo: 'Accumulated Depreciation' }
                 ],
                 postedBy: req.user.id
             }], { session });
@@ -135,7 +137,8 @@ exports.runDepreciation = async (req, res) => {
 
         res.status(200).json({ success: true, message: 'Depreciation successfully calculated and posted to the ledger.' });
     } catch (error) {
-        res.status(400).json({ error: error.message });
+        console.error("Depreciation Error:", error);
+        res.status(400).json({ success: false, error: error.message });
     } finally {
         session.endSession();
     }

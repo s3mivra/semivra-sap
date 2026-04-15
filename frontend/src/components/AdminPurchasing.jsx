@@ -248,7 +248,7 @@ const AdminPurchasing = () => {
                                         <div className="font-bold text-slate-900 text-sm mb-3 min-h-[2.5rem]">{p.name}</div>
                                         <div className="flex justify-between items-center">
                                             <span className="font-bold text-blue-600 text-base">
-                                                ${catItem ? catItem.defaultCost.toFixed(2) : p.averageCost.toFixed(2)}
+                                                ₱{catItem ? catItem.defaultCost.toFixed(2) : p.averageCost.toFixed(2)}
                                             </span>
                                             <span className="text-xs bg-slate-100 px-2 py-1 rounded text-slate-600">Stock: {p.currentStock}</span>
                                         </div>
@@ -331,7 +331,7 @@ const AdminPurchasing = () => {
                                         className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-500"
                                     >
                                         <option value="">Select Product</option>
-                                        {products.map(p => <option key={p._id} value={p._id}>{p.name} ({p.sku}) - Base: ${p.price}</option>)}
+                                        {products.map(p => <option key={p._id} value={p._id}>{p.name} ({p.sku}) - Base: ₱{p.price}</option>)}
                                     </select>
                                     <div className="flex items-center gap-2 px-3 py-2 bg-white border border-slate-300 rounded-lg">
                                         <DollarSign className="w-4 h-4 text-slate-400" />
@@ -409,7 +409,7 @@ const AdminPurchasing = () => {
                                                     className="w-20 px-2 py-1 border border-blue-300 rounded text-center text-sm font-medium text-blue-600 bg-blue-50"
                                                 />
                                                 <span className="font-medium text-slate-900 ml-auto">
-                                                    ${(item.quantity * item.unitCost).toFixed(2)}
+                                                    ₱{(item.quantity * item.unitCost).toFixed(2)}
                                                 </span>
                                             </div>
                                         </div>
@@ -429,7 +429,7 @@ const AdminPurchasing = () => {
                                 <div className="border-t border-slate-200 pt-4">
                                     <div className="flex justify-between items-center mb-4">
                                         <span className="text-lg font-bold text-slate-900">Total:</span>
-                                        <span className="text-lg font-bold text-blue-600">${totalPoAmount.toFixed(2)}</span>
+                                        <span className="text-lg font-bold text-blue-600">₱{totalPoAmount.toFixed(2)}</span>
                                     </div>
                                     <button 
                                         onClick={handlePOSubmit}
@@ -470,7 +470,7 @@ const AdminPurchasing = () => {
                                             </span>
                                         </div>
                                         <div className="flex justify-between items-center">
-                                            <span className="font-medium text-slate-900">${po.totalAmount.toFixed(2)}</span>
+                                            <span className="font-medium text-slate-900">₱{po.totalAmount.toFixed(2)}</span>
                                             {po.status === 'Ordered' && (
                                                 <select 
                                                     value={receiveWarehouseSelections[po._id] || ''} 

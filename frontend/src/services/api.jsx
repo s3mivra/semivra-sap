@@ -27,9 +27,22 @@ api.interceptors.request.use((config) => {
     }
 
     // 4. Clean Enterprise Header Injection
-    const activeDivision = localStorage.getItem('activeDivision');
+    // 4. Clean Enterprise Header Injection
+    let activeDivision = localStorage.getItem('activeDivision');
+    
+    // Fallback: If activeDivision isn't set, grab it from the cached user object
+    if (!activeDivision || activeDivision === 'undefined') {
+        try {
+            const user = JSON.parse(localStorage.getItem('user'));
+            activeDivision = user?.division;
+        } catch (e) {
+            activeDivision = null;
+        }
+    }
+
+    // Safely attach the header
     if (activeDivision) {
-        config.headers['x-division-id'] = activeDivision;
+        config.headers['x-division-id'] = typeof activeDivision === 'object' ? activeDivision._id : activeDivision;
     }
 
     return config;

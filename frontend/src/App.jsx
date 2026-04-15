@@ -46,7 +46,7 @@ import AdminAnalytics from './components/AdminAnalytics';
 import AdminPayroll from './pages/AdminPayroll'; // Optional/Pending module
 
 import AdminManufacturing from './components/AdminManufacturing';
-
+import AdminProduction from './components/AdminProduction'
 class ErrorBoundary extends React.Component {
     constructor(props) {
         super(props);
@@ -216,7 +216,7 @@ const AppContent = () => {
                     <Route path="/admin/reports" element={<ProtectedRoute requiredPerm="View Reports"><AdminReports /></ProtectedRoute>} />
 
                     <Route path="/admin/manufacturing" element={<ProtectedRoute requiredPerm="Manage Inventory"><AdminManufacturing /></ProtectedRoute>} />
-                    
+                    <Route path="/production" element={<AdminProduction />} />
                     {/* CATCH-ALL */}
                     <Route path="*" element={<Navigate to="/" replace />} />
                 </Routes>

@@ -3,6 +3,8 @@ const JournalEntry = require('../models/JournalEntry');
 const Account = require('../models/Account');
 const Product = require('../models/Product');
 
+const { getDivision } = require('../utils/divisionHelper');
+
 exports.createInvoice = async (req, res) => {
     // 🛡️ 1. START THE ACID TRANSACTION
     const session = await mongoose.startSession();

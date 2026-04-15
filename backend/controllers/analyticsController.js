@@ -3,10 +3,7 @@ const Product = require('../models/Product');
 const mongoose = require('mongoose');
 
 // 🛡️ Helper to extract tenant ID securely
-const getDivision = (req) => {
-    if (req.user?.role?.level === 100) return req.headers['x-division-id'] || req.body.division;
-    return req.user?.division;
-};
+const { getDivision } = require('../utils/divisionHelper');
 
 exports.getDashboardMetrics = async (req, res) => {
     try {
@@ -68,5 +65,59 @@ exports.getDashboardMetrics = async (req, res) => {
     } catch (error) {
         console.error("Analytics Error:", error);
         res.status(500).json({ error: error.message });
+    }
+};
+
+exports.getSalesReport = async (req, res) => {
+    try {
+        const targetDivision = getDivision(req);
+        if (!targetDivision) return res.status(400).json({ success: false, message: 'Division ID required' });
+
+        const divisionId = new mongoose.Types.ObjectId(
+            targetDivision._id ? targetDivision._id.toString() : targetDivision.toString()
+        );
+
+        // 1. Fetch raw totals for the KPI cards
+        const sales = await Sale.find({ 
+            division: divisionId,
+            status: { $ne: 'Voided' } 
+        });
+
+        const totalRevenue = sales.reduce((sum, sale) => sum + (sale.totalAmount || 0), 0);
+        const totalSales = sales.length;
+
+        // 2. Aggregate data for the Chart (Grouped by Date)
+        const pipeline = [
+            { 
+                $match: { 
+                    division: divisionId,
+                    status: { $ne: 'Voided' } 
+                } 
+            },
+            {
+                $group: {
+                    // Group by YYYY-MM-DD
+                    _id: { $dateToString: { format: "%Y-%m-%d", date: "$date" } },
+                    dailyRevenue: { $sum: "$totalAmount" },
+                    salesCount: { $sum: 1 }
+                }
+            },
+            { $sort: { _id: 1 } } // Sort chronologically (oldest to newest)
+        ];
+
+        const chartData = await Sale.aggregate(pipeline);
+
+        res.status(200).json({
+            success: true,
+            data: {
+                totalRevenue,
+                totalSales,
+                chartData
+            }
+        });
+
+    } catch (error) {
+        console.error("🔥 Analytics Error:", error);
+        res.status(500).json({ success: false, error: error.message });
     }
 };

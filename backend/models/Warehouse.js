@@ -1,10 +1,16 @@
 const mongoose = require('mongoose');
 
 const WarehouseSchema = new mongoose.Schema({
-    code: { type: String, required: true, unique: true, uppercase: true }, // e.g., "MAIN", "STORE-01"
-    name: { type: String, required: true }, // e.g., "Main Distribution Center"
-    location: { type: String }, // e.g., "New York, NY"
+    // Tenant Lock
+    division: { type: mongoose.Schema.Types.ObjectId, ref: 'Division', required: true },
+    
+    code: { type: String, required: true, uppercase: true }, // Removed global unique: true
+    name: { type: String, required: true },
+    location: { type: String }, 
     isActive: { type: Boolean, default: true }
 }, { timestamps: true });
+
+// Enforce unique warehouse codes only within the same division
+WarehouseSchema.index({ division: 1, code: 1 }, { unique: true });
 
 module.exports = mongoose.model('Warehouse', WarehouseSchema);

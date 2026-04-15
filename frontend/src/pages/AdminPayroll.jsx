@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import api from '../services/api'; // 🛡️ CRITICAL FIX: Use the central API with tenant interceptors
+import api from '../services/api';
 import { Briefcase, Calendar, DollarSign, CheckCircle, Loader } from 'lucide-react';
 
 const AdminPayroll = () => {
@@ -11,7 +11,6 @@ const AdminPayroll = () => {
 
     const fetchPayrollRuns = async () => {
         try {
-            // The api interceptor automatically attaches the JWT and x-division-id
             const { data } = await api.get('/payroll');
             setPayrollRuns(Array.isArray(data.data) ? data.data : []);
         } catch (err) {
@@ -144,10 +143,10 @@ const AdminPayroll = () => {
                                                 {new Date(run.periodStart).toLocaleDateString()} - {new Date(run.periodEnd).toLocaleDateString()}
                                             </td>
                                             <td className="py-3 px-4 text-sm text-slate-700">
-                                                ${run.totalGrossPay.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                                                ₱{run.totalGrossPay.toLocaleString(undefined, { minimumFractionDigits: 2 })}
                                             </td>
                                             <td className="py-3 px-4 text-sm font-semibold text-slate-900">
-                                                ${run.totalNetPay.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                                                ₱{run.totalNetPay.toLocaleString(undefined, { minimumFractionDigits: 2 })}
                                             </td>
                                             <td className="py-3 px-4">
                                                 <span className={`px-2.5 py-1 text-xs font-medium rounded-full ${

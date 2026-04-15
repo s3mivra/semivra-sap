@@ -58,7 +58,7 @@ const SuperAdminDashboard = () => {
                         <h3 className="text-sm font-medium text-slate-600 uppercase tracking-wider m-0">Gross Revenue (All Time)</h3>
                     </div>
                     <p className="text-4xl font-light text-slate-900 m-0">
-                        ${kpis.totalRevenue.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                        ₱{kpis.totalRevenue.toLocaleString(undefined, { minimumFractionDigits: 2 })}
                     </p>
                 </div>
                 <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
@@ -95,7 +95,7 @@ const SuperAdminDashboard = () => {
                                     <td className="py-4 px-6 text-sm font-mono font-bold">{txn.entryNumber}</td>
                                     <td className="py-4 px-6 text-sm">{txn.description}</td>
                                     <td className="py-4 px-6 text-sm">{txn.postedBy?.name || 'System'}</td>
-                                    <td className="py-4 px-6 text-sm font-bold text-slate-900">${txn.totalDebit.toFixed(2)}</td>
+                                    <td className="py-4 px-6 text-sm font-bold text-slate-900">₱{txn.totalDebit.toFixed(2)}</td>
                                 </tr>
                             ))
                         )}

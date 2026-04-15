@@ -47,7 +47,7 @@ const AdminGeneralLedger = () => {
                 journals.map(journal => (
                     <div key={journal._id} style={{ marginBottom: '20px', border: '1px solid #eee', borderRadius: '8px', overflow: 'hidden' }}>
                         <div style={{ backgroundColor: '#f8f9fa', padding: '10px 15px', display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #eee', fontSize: '14px', color: '#7f8c8d' }}>
-                            <span><strong>{journal.entryNumber}</strong> | {new Date(journal.date).toLocaleDateString()}</span>
+                            <span><strong>{journal.entryNumber}</strong> | {new Date(journal.postingDate).toLocaleDateString()}</span>
                             <span>{journal.description} (Posted by {journal.postedBy?.name || 'System'})</span>
                         </div>
                         <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '14px' }}>
@@ -56,8 +56,8 @@ const AdminGeneralLedger = () => {
                                     <tr key={idx} style={{ borderBottom: '1px solid #f9f9f9' }}>
                                         <td style={{ padding: '8px 15px', width: '40%' }}>{line.account?.code} - {line.account?.name}</td>
                                         <td style={{ padding: '8px 15px', width: '30%', color: '#95a5a6' }}>{line.memo}</td>
-                                        <td style={{ padding: '8px 15px', width: '15%', color: '#27ae60', fontWeight: 'bold' }}>{line.debit > 0 ? `$${line.debit.toFixed(2)}` : ''}</td>
-                                        <td style={{ padding: '8px 15px', width: '15%', color: '#e74c3c', fontWeight: 'bold' }}>{line.credit > 0 ? `$${line.credit.toFixed(2)}` : ''}</td>
+                                        <td style={{ padding: '8px 15px', width: '15%', color: '#27ae60', fontWeight: 'bold' }}>{line.debit > 0 ? `₱${line.debit.toFixed(2)}` : ''}</td>
+                                        <td style={{ padding: '8px 15px', width: '15%', color: '#e74c3c', fontWeight: 'bold' }}>{line.credit > 0 ? `₱${line.credit.toFixed(2)}` : ''}</td>
                                     </tr>
                                 ))}
                             </tbody>
