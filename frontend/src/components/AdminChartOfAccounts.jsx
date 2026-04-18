@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useContext } from 'react';
-import { fetchAccounts, createAccount, deleteAccount } from '../services/accountingService';
+import { fetchAccounts, createAccount, deleteAccount, seedStandardAccounts } from '../services/accountingService';
 // 👇 NEW: Import AuthContext to grab the user's division
 import { AuthContext } from '../context/AuthContext'; 
 
@@ -7,6 +7,8 @@ const AdminChartOfAccounts = () => {
     // 👇 NEW: Grab the user and resolve their division
     const { user } = useContext(AuthContext);
     const resolvedDivisionId = localStorage.getItem('activeDivision') || user?.division?._id || user?.division;
+
+    const [seedStatus, setSeedStatus] = useState('idle'); // 'idle' | 'loading' | 'complete'
 
     const [accounts, setAccounts] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -92,6 +94,30 @@ const AdminChartOfAccounts = () => {
         }
     };
 
+    const handleSeedEssentials = async () => {
+        setSeedStatus('loading');
+        try {
+            // 🛡️ THE FIX: Using your clean service architecture!
+            const data = await seedStandardAccounts();
+            
+            setSeedStatus('complete');
+            loadAccounts(); // Refresh the table
+            
+            setTimeout(() => setSeedStatus('idle'), 3000);
+            alert(data.message); 
+            
+        } catch (error) {
+            setSeedStatus('idle');
+            
+            // Log the true error to the console
+            console.error("🔥 SEED ERROR DETAILS:", error.response?.data || error.message);
+            
+            // Show the true error to the user
+            const errorMessage = error.response?.data?.error || error.response?.data?.message || error.message;
+            alert(`Setup Failed: ${errorMessage}`);
+        }
+    };
+
     if (loading) return <div>Loading Chart of Accounts...</div>;
 
     return (
@@ -99,6 +125,47 @@ const AdminChartOfAccounts = () => {
             <h2 style={{ margin: '0 0 20px 0', color: '#2c3e50', borderBottom: '1px solid #eee', paddingBottom: '10px' }}>
                 Chart of Accounts (CoA)
             </h2>
+
+            <button
+                onClick={handleSeedEssentials}
+                disabled={seedStatus !== 'idle'}
+                style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    padding: '10px 16px',
+                    fontSize: '13px',
+                    fontWeight: 'bold',
+                    color: seedStatus === 'idle' ? 'white' : '#7f8c8d',
+                    backgroundColor: seedStatus === 'idle' ? '#2980b9' : '#f8f9fa',
+                    border: seedStatus === 'loading' ? '1px solid #bdc3c7' : 'none',
+                    borderRadius: '4px',
+                    cursor: seedStatus === 'idle' ? 'pointer' : 'default',
+                    transition: 'all 0.2s ease',
+                    boxShadow: seedStatus === 'idle' ? '0 2px 4px rgba(0,0,0,0.1)' : 'none'
+                }}
+                onMouseOver={(e) => { if(seedStatus === 'idle') e.currentTarget.style.backgroundColor = '#2471a3' }}
+                onMouseOut={(e) => { if(seedStatus === 'idle') e.currentTarget.style.backgroundColor = '#2980b9' }}
+            >
+                {seedStatus === 'idle' && (
+                    <>
+                        Auto-Fill Essentials
+                    </>
+                )}
+                
+                {seedStatus === 'loading' && (
+                    <>
+                        Syncing...
+                    </>
+                )}
+                
+                {seedStatus === 'complete' && (
+                    <>
+                        <span style={{ fontSize: '14px', color: '#27ae60' }}>✓</span> 
+                        <span style={{ color: '#27ae60' }}>Setup Complete</span>
+                    </>
+                )}
+            </button>
 
             {/* 👇 NEW: Visual Warning if Division is Missing 👇 */}
             {!resolvedDivisionId && (
@@ -143,6 +210,8 @@ const AdminChartOfAccounts = () => {
                     </button>
                 </div>
             </form>
+
+            
 
             {/* Chart of Accounts Table */}
             <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '14px' }}>

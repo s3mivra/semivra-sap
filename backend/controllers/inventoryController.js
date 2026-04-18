@@ -93,22 +93,57 @@ exports.getWarehouses = async (req, res) => {
 
 // --- STOCK MOVEMENTS ---
 exports.recordMovement = async (req, res) => {
-    try {
-        const { product, warehouse, type, quantity, reference } = req.body;
+    // 🛡️ Start an ACID Transaction
+    const session = await mongoose.startSession();
+    session.startTransaction();
 
-        const movement = await StockMovement.create({
-            division: getDivision(req), // 🛡️
-            product,
+    try {
+        const { product: productId, warehouse, type, quantity, reference } = req.body;
+        const targetDivision = getDivision(req);
+        
+        // Force quantity to be a clean, positive number for our math engine
+        const qtyNum = Math.abs(Number(quantity)); 
+
+        // 1. Grab the physical product off the shelf
+        const productDoc = await Product.findOne({ _id: productId, division: targetDivision }).session(session);
+        if (!productDoc) throw new Error("Product not found or access denied.");
+
+        // 2. Do the real inventory math
+        if (type === 'OUT') {
+            if (productDoc.currentStock < qtyNum) {
+                throw new Error(`Cannot deduct ${qtyNum}. Only ${productDoc.currentStock} in stock.`);
+            }
+            productDoc.currentStock -= qtyNum; // 📉 Physically remove it!
+        } else if (type === 'IN') {
+            productDoc.currentStock += qtyNum; // 📈 Physically add it!
+        } else {
+            throw new Error("Invalid movement type. Must be 'IN' or 'OUT'.");
+        }
+
+        // 3. Save the new stock number back to the database
+        await productDoc.save({ session });
+
+        // 4. Create the history log
+        const movement = await StockMovement.create([{
+            division: targetDivision,
+            product: productId,
             warehouse,
             type,
-            quantity: Math.abs(quantity), 
+            quantity: qtyNum, 
             reference,
-            processedBy: req.user.id
-        });
+            processedBy: req.user?.id || req.user?._id
+        }], { session });
 
-        res.status(201).json({ success: true, message: 'Stock movement recorded successfully', data: movement });
+        // ✅ If both steps worked perfectly, lock it in!
+        await session.commitTransaction();
+        res.status(201).json({ success: true, message: 'Stock updated and movement recorded!', data: movement[0] });
+
     } catch (error) {
+        // 🛑 If anything failed, roll back the changes to protect the stock
+        await session.abortTransaction();
         res.status(400).json({ success: false, error: error.message });
+    } finally {
+        session.endSession();
     }
 };
 

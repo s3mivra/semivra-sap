@@ -361,3 +361,53 @@ exports.recordPayment = async (req, res) => {
         session.endSession();
     }
 };
+
+exports.seedEssentialAccounts = async (req, res) => {
+    try {
+        const targetDivision = getDivision(req);
+        if (!targetDivision) throw new Error("Division ID required.");
+
+        // 📋 The Ultimate ERP Standard Chart of Accounts
+        const standardAccounts = [
+            { accountCode: '1000', code: '1000', accountName: 'Cash on Hand', name: 'Cash on Hand', accountType: 'Asset', type: 'Asset', normalBalance: 'Debit' },
+            { accountCode: '1010', code: '1010', accountName: 'Cash in Bank', name: 'Cash in Bank', accountType: 'Asset', type: 'Asset', normalBalance: 'Debit' },
+            { accountCode: '1200', code: '1200', accountName: 'Accounts Receivable', name: 'Accounts Receivable', accountType: 'Asset', type: 'Asset', normalBalance: 'Debit' },
+            { accountCode: '1500', code: '1500', accountName: 'Inventory Asset', name: 'Inventory Asset', accountType: 'Asset', type: 'Asset', normalBalance: 'Debit' },
+            { accountCode: '2000', code: '2000', accountName: 'Accounts Payable', name: 'Accounts Payable', accountType: 'Liability', type: 'Liability', normalBalance: 'Credit' },
+            { accountCode: '2100', code: '2100', accountName: 'VAT Payable', name: 'VAT Payable', accountType: 'Liability', type: 'Liability', normalBalance: 'Credit' },
+            { accountCode: '3000', code: '3000', accountName: 'Owner Equity', name: 'Owner Equity', accountType: 'Equity', type: 'Equity', normalBalance: 'Credit' },
+            { accountCode: '4000', code: '4000', accountName: 'Sales Revenue', name: 'Sales Revenue', accountType: 'Revenue', type: 'Revenue', normalBalance: 'Credit' },
+            { accountCode: '4150', code: '4150', accountName: 'Sales Returns', name: 'Sales Returns', accountType: 'Revenue', type: 'Revenue', normalBalance: 'Debit' },
+            { accountCode: '5000', code: '5000', accountName: 'Cost of Goods Sold', name: 'Cost of Goods Sold', accountType: 'Expense', type: 'Expense', normalBalance: 'Debit' },
+            { accountCode: '6000', code: '6000', accountName: 'Operating Expenses', name: 'Operating Expenses', accountType: 'Expense', type: 'Expense', normalBalance: 'Debit' }
+        ];
+
+        let addedCount = 0;
+
+        for (let acc of standardAccounts) {
+            // Check if the account already exists in THIS division
+            const exists = await Account.findOne({
+                division: targetDivision,
+                $or: [{ accountCode: acc.accountCode }, { accountName: acc.accountName }]
+            });
+
+            // Only create it if it's missing
+            if (!exists) {
+                await Account.create({ ...acc, division: targetDivision });
+                addedCount++;
+            }
+        }
+
+        // Return a smart message based on what happened
+        if (addedCount === 0) {
+            res.status(200).json({ success: true, message: 'All essential accounts are already present.', added: 0 });
+        } else {
+            res.status(201).json({ success: true, message: `Successfully added ${addedCount} essential accounts.`, added: addedCount });
+        }
+
+    } catch (error) {
+        console.error("COA Seed Error:", error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+};
+

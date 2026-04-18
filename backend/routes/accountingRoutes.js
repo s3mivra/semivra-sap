@@ -7,6 +7,7 @@ const {
     getJournalEntries,
     getUnpaidBills,
     recordPayment,
+    seedEssentialAccounts,
     voidJournalEntry
 } = require('../controllers/accountingController');
 const { protect, authorize } = require('../middleware/auth');
@@ -45,5 +46,7 @@ router.route('/journals/:id/void')
 // Accounts Payable Routes
 router.get('/ap/unpaid', getUnpaidBills);
 router.post('/ap/pay', authorize('Admin', 'Super Admin'), recordPayment);
+
+router.post('/coa/seed', authorize('Admin', 'Super Admin'), seedEssentialAccounts);
 
 module.exports = router;

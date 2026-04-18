@@ -20,16 +20,13 @@ const AdminAR = () => {
         try {
             const response = await fetchUnpaidSales();
             
-            // 💡 FIX: Safely extract the array. 
-            // If your backend returns { data: [...] }, response.data.data gets it.
-            // If it returns raw [...], response.data gets it.
-            // If both fail, we fallback to an empty array [] so .reduce() never crashes.
+            // 🛡️ Grab the flat array of sales sent by the updated controller
             const salesArray = response.data?.data || response.data || [];
             
             setUnpaidSales(Array.isArray(salesArray) ? salesArray : []);
         } catch (error) {
-            console.error("Failed to load AR data");
-            setUnpaidSales([]); // Fallback on error
+            console.error("Failed to load AR data:", error);
+            setUnpaidSales([]); 
         } finally {
             setLoading(false);
         }
@@ -48,8 +45,18 @@ const AdminAR = () => {
     };
 
     // Action: Open Customer Ledger
+    // Action: Open Customer Ledger
     const handleViewLedger = (sale) => {
-        setSelectedCustomerId(sale.customer?._id || sale.customer || sale.customerId);
+        // Extract the true Customer ID (if it exists)
+        const custId = sale.customer?._id || sale.customer;
+        
+        // 🛡️ THE FIX: Prevent Walk-ins from crashing the Ledger View
+        if (!custId) {
+            alert("Walk-in customers do not have a formal Statement of Account. Please register a customer profile to track their lifelong ledger.");
+            return;
+        }
+
+        setSelectedCustomerId(custId);
         setRightView('ledger'); // Auto-switch to ledger tab
     };
 

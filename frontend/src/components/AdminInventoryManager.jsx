@@ -140,7 +140,7 @@ const AdminInventoryManager = () => {
                     </div>
                     <div>
                         <label style={{ display: 'block', fontSize: '12px', marginBottom: '5px' }}>Quantity</label>
-                        <input type="number" required min="1" value={movementForm.quantity} onChange={e => setMovementForm({...movementForm, quantity: e.target.value})} style={{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid #ccc' }} />
+                        <input type="number" value={movementForm.quantity} onChange={e => setMovementForm({...movementForm, quantity: e.target.value})} style={{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid #ccc' }} />
                     </div>
                     <div>
                         <label style={{ display: 'block', fontSize: '12px', marginBottom: '5px' }}>Reference / Reason</label>

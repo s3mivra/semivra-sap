@@ -43,6 +43,10 @@ const SaleSchema = new mongoose.Schema({
 // Multi-tenant unique indexes
 SaleSchema.index({ division: 1, receiptNumber: 1 }, { unique: true });
 SaleSchema.index({ division: 1, orNumber: 1 }, { unique: true, sparse: true });
-SaleSchema.index({ division: 1, invoiceNumber: 1 }, { unique: true, sparse: true });
+// 🛡️ THE FIX: Only enforce uniqueness if the invoiceNumber actually exists as a string!
+SaleSchema.index(
+    { division: 1, invoiceNumber: 1 }, 
+    { unique: true, partialFilterExpression: { invoiceNumber: { $type: "string" } } }
+);
 
 module.exports = mongoose.model('Sale', SaleSchema);

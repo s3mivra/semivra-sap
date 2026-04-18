@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { getUnreconciledCash, reconcileTransactions } from '../services/accountingService';
+import { getUnreconciledCash, reconcileBulkTransactions } from '../services/reconciliationService'; // 🛡️ MATCH THE FUNCTION NAME!
 import { CheckCircle, RefreshCw, AlertCircle, Search, DollarSign } from 'lucide-react';
 
 const AdminBankReconciliation = () => {
@@ -17,15 +17,19 @@ const AdminBankReconciliation = () => {
         try {
             setLoading(true);
             const res = await getUnreconciledCash();
-            setData(res); 
-            setSelectedIds(new Set());
-        } catch (error) {
-            console.error("Full API Error:", error); // 👈 Logs the real error to your browser console
             
-            // 🛡️ Update this line to catch the exact backend message
+            // 🛡️ THE FIX: Your backend returns 'unclearedTransactions'
+            // We must map that specifically to your 'transactions' state!
+            if (res && res.success) {
+                setData(res); 
+                setTransactions(res.unclearedTransactions || []); 
+                setSelectedIds(new Set());
+            }
+        } catch (error) {
+            console.error("Full API Error:", error);
             setStatus({ 
                 type: 'error', 
-                message: error.response?.data?.message || error.response?.data?.error || error.message || 'Failed to load reconciliation data.' 
+                message: error.response?.data?.message || 'Failed to load data.' 
             });
         } finally {
             setLoading(false);
@@ -35,20 +39,21 @@ const AdminBankReconciliation = () => {
     useEffect(() => { loadData(); }, []);
 
     // 🧮 Toggle individual checkboxes
-    const handleSelect = (lineId) => {
-        const newSelected = new Set(selectedIds);
-        if (newSelected.has(lineId)) {
-            newSelected.delete(lineId);
-        } else {
-            newSelected.add(lineId);
-        }
-        setSelectedIds(newSelected);
-    };
+    const handleSelect = (id) => {
+    const newSelected = new Set(selectedIds);
+    // 🛡️ Use _id to match your backend controller output
+    if (newSelected.has(id)) {
+        newSelected.delete(id);
+    } else {
+        newSelected.add(id);
+    }
+    setSelectedIds(newSelected);
+};
 
     // 🧮 Select or Deselect ALL currently visible transactions
     const handleSelectAll = (e) => {
         if (e.target.checked) {
-            const allIds = filteredTransactions.map(t => t.lineId);
+            const allIds = filteredTransactions.map(t => t._id); // Use _id, not lineId
             setSelectedIds(new Set(allIds));
         } else {
             setSelectedIds(new Set());
@@ -58,16 +63,19 @@ const AdminBankReconciliation = () => {
     // 🚀 Submit to Backend
     const handleReconcile = async () => {
         if (selectedIds.size === 0) return;
-        if (!window.confirm(`Are you sure you want to lock ${selectedIds.size} transaction(s) as Reconciled? This cannot easily be undone.`)) return;
-
+        
         try {
-            setStatus({ type: 'info', message: 'Reconciling with the ledger...' });
+            setIsSubmitting(true);
+            // 🛡️ Call the specific service function
             await reconcileBulkTransactions(Array.from(selectedIds));
-            setStatus({ type: 'success', message: `Successfully reconciled ${selectedIds.size} transactions!` });
-            setSelectedIds(new Set()); // Clear selections
-            loadData(); // Refresh the table
+            
+            setStatus({ type: 'success', message: 'Transactions locked successfully!' });
+            setSelectedIds(new Set());
+            loadData(); // Refresh the list
         } catch (error) {
-            setStatus({ type: 'error', message: error.response?.data?.message || 'Reconciliation failed.' });
+            setStatus({ type: 'error', message: error.response?.data?.message || 'Failed' });
+        } finally {
+            setIsSubmitting(false);
         }
     };
 
@@ -80,7 +88,7 @@ const AdminBankReconciliation = () => {
 
     // 💰 Dynamic Math for the Accountant
     const selectedTotal = Array.from(selectedIds).reduce((sum, id) => {
-        const txn = transactions.find(t => t.lineId === id);
+        const txn = transactions.find(t => t._id === id); // 🛡️ Use _id
         if (!txn) return sum;
         // Add deposits, subtract withdrawals
         return sum + (txn.type === 'Deposit' ? txn.amount : -txn.amount);
@@ -167,15 +175,15 @@ const AdminBankReconciliation = () => {
                             ) : (
                                 filteredTransactions.map((txn) => (
                                     <tr 
-                                        key={txn.lineId} 
-                                        onClick={() => handleSelect(txn.lineId)}
-                                        className={`cursor-pointer transition-colors ${selectedIds.has(txn.lineId) ? 'bg-indigo-50/50' : 'hover:bg-slate-50'}`}
+                                        key={txn._id} // 🛡️ Fixes the React Unique Key Error
+                                        onClick={() => handleSelect(txn._id)} // 🛡️ Selects the specific row
+                                        className={`cursor-pointer transition-colors ${selectedIds.has(txn._id) ? 'bg-indigo-50/50' : 'hover:bg-slate-50'}`}
                                     >
                                         <td className="p-4 text-center">
                                             <input 
                                                 type="checkbox" 
                                                 className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
-                                                checked={selectedIds.has(txn.lineId)}
+                                                checked={selectedIds.has(txn._id)} // 🛡️ Checks only the clicked box
                                                 onChange={() => {}} // Handled by tr onClick
                                             />
                                         </td>

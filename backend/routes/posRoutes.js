@@ -7,20 +7,27 @@ const { validateBody } = require('../middleware/validate'); // 🛡️ Import th
 
 const router = express.Router();
 
-// 🛒 POS Checkout Schema (Prevents negative quantities and fake prices)
+// 🛒 POS Checkout Schema (Updated to match the actual frontend payload!)
 const checkoutSchema = Joi.object({
     items: Joi.array().items(
         Joi.object({
-            product: Joi.string().hex().length(24).required(), // Must be a valid MongoDB ObjectId
-            quantity: Joi.number().integer().min(1).required(), // Cannot sell 0 or negative items!
+            product: Joi.string().hex().length(24).required(),
+            quantity: Joi.number().integer().min(1).required(),
             price: Joi.number().min(0).required()
-        })
-    ).min(1).required(), // Cart cannot be empty
+        }).unknown(true) // 🛡️ Allows the frontend to send UI junk like 'name' without crashing
+    ).min(1).required(),
+    
     paymentMethod: Joi.string().valid('Cash', 'Card', 'GCash', 'AR', 'Other').required(),
-    amountPaid: Joi.number().min(0).required(),
-    customer: Joi.string().hex().length(24).allow(null, '').optional()
-});
-
+    
+    // 👇 Adding the fields your frontend actually sends!
+    warehouseId: Joi.string().hex().length(24).required(), // Controller needs this for inventory
+    taxRate: Joi.number().min(0).optional(),
+    discountAmount: Joi.number().min(0).optional(),
+    customerName: Joi.string().allow(null, '').optional(),
+    
+    // We make this optional since your controller calculates the final total anyway
+    amountPaid: Joi.number().min(0).optional() 
+}).unknown(true); // 🛡️ Allows any other harmless extra data to pass through
 // 💸 Refund Schema
 const refundSchema = Joi.object({
     reason: Joi.string().min(5).max(200).required(),

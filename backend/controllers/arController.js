@@ -7,76 +7,48 @@ const Customer = require('../models/Customer');
 // @desc    Get all unpaid invoices grouped by Customer
 // @route   GET /api/ar/unpaid
 // @access  Private
+// @desc    Get all unpaid invoices grouped by Customer
+// @route   GET /api/ar/unpaid
+// @access  Private
+// @desc    Get all unpaid invoices grouped by Customer
+// @route   GET /api/ar/unpaid
+// @access  Private
+// @desc    Get all unpaid invoices (Flat List for the Table)
+// @route   GET /api/ar/unpaid
+// @access  Private
+// @desc    Get all unpaid invoices (Flat List for the Table)
+// @route   GET /api/ar/unpaid
+// @access  Private
 exports.getUnpaidReceivables = async (req, res) => {
     try {
-        // 🏢 SILO LOCK
         const targetDivision = req.headers['x-division-id'] || req.user?.division;
-        if (!targetDivision) return res.status(400).json({ success: false, message: 'Division context is missing.' });
-        
-        const divisionId = new mongoose.Types.ObjectId(
-            targetDivision._id ? targetDivision._id.toString() : targetDivision.toString()
-        );
+        if (!targetDivision) return res.status(400).json({ success: false, message: 'Division missing' });
 
-        const arSummary = await Sale.aggregate([
-            // 1. Find only sales in this division that have a remaining balance
-            { 
-                $match: { 
-                    division: divisionId,
-                    balance: { $gt: 0 },
-                    status: { $ne: 'Voided' } 
-                } 
-            },
-            // 2. Group them by Customer to get total owed per person
-            {
-                $group: {
-                    _id: "$customer",
-                    totalOwed: { $sum: "$balance" },
-                    totalInvoiced: { $sum: "$totalAmount" },
-                    invoiceCount: { $sum: 1 },
-                    // Keep a list of the specific unpaid invoices
-                    invoices: { 
-                        $push: { invoiceId: "$_id", date: "$createdAt", balance: "$balance", total: "$totalAmount" } 
-                    }
-                }
-            },
-            // 3. Lookup the actual Customer details
-            {
-                $lookup: {
-                    from: 'customers', // Mongoose collection name
-                    localField: '_id',
-                    foreignField: '_id',
-                    as: 'customerDetails'
-                }
-            },
-            { $unwind: "$customerDetails" },
-            // 4. Format the output cleanly
-            {
-                $project: {
-                    _id: 0,
-                    customerId: "$_id",
-                    customerName: "$customerDetails.name",
-                    email: "$customerDetails.email",
-                    phone: "$customerDetails.phone",
-                    totalOwed: 1,
-                    totalInvoiced: 1,
-                    invoiceCount: 1,
-                    invoices: 1
-                }
-            },
-            // 5. Sort by who owes the most money!
-            { $sort: { totalOwed: -1 } }
-        ]);
+        // 1. Grab the receipts and try to populate the real Customer profile if it exists
+        const unpaidSales = await Sale.find({
+            division: targetDivision,
+            balanceDue: { $gt: 0 },
+            status: { $ne: 'Voided' }
+        })
+        .populate('customer', 'name') // 👈 Tries to grab the real name
+        .sort({ createdAt: -1 });
 
-        // Calculate Grand Total AR
-        const grandTotalAR = arSummary.reduce((sum, cust) => sum + cust.totalOwed, 0);
+        // 2. 🛡️ THE FIX: Safely map over the results and enforce the "Walk-in" label
+        const formattedSales = unpaidSales.map(sale => {
+            const saleObj = sale.toObject(); // Convert Mongoose document to plain JavaScript object
+            // Fallback logic: Use Profile Name -> OR use POS Typed Name -> OR use "Walk-in"
+            saleObj.customerName = sale.customer?.name || sale.customerName || 'Walk-in';
+            return saleObj;
+        });
 
-        res.status(200).json({ success: true, data: { grandTotalAR, customers: arSummary } });
+        // Send the perfectly formatted array straight to React
+        res.status(200).json({ success: true, data: formattedSales });
+
     } catch (error) {
-        console.error("AR Summary Error:", error);
+        console.error("🔥 AR ERROR:", error);
         res.status(500).json({ success: false, message: 'Failed to fetch Accounts Receivable.' });
     }
 };
-
 // 2. Receive a Debt Payment
 exports.receivePayment = async (req, res) => {
     try {
@@ -97,11 +69,21 @@ exports.receivePayment = async (req, res) => {
         await sale.save();
 
         // B. AUTOMATION: Post the Accounting Journal (Debit Cash, Credit AR)
-        // Note: Using a forgiving search in case you renamed your accounts earlier!
-        const cashAccount = await Account.findOne({ $or: [{ accountName: { $regex: /Cash/i } }, { name: { $regex: /Cash/i } }] });
-        const arAccount = await Account.findOne({ $or: [{ accountName: { $regex: /Accounts Receivable/i } }, { name: { $regex: /Accounts Receivable/i } }] });
+        // B. AUTOMATION: Post the Accounting Journal (Smart Routing)
+        let targetAssetAccount;
+        
+        // 💵 1. CASH: Goes to the physical drawer (Code 1000)
+        if (method === 'Cash') {
+            targetAssetAccount = await Account.findOne({ $or: [{ code: '1000' }, { accountCode: '1000' }], division: sale.division });
+        } 
+        // 💳📱 2. CARD/GCASH/BANK: Goes straight to the Bank (Code 1010)
+        else {
+            targetAssetAccount = await Account.findOne({ $or: [{ code: '1010' }, { accountCode: '1010' }], division: sale.division });
+        }
 
-        if (cashAccount && arAccount) {
+        const arAccount = await Account.findOne({ $or: [{ code: '1200' }, { accountCode: '1200' }], division: sale.division });
+
+        if (targetAssetAccount && arAccount) {
             const targetDate = new Date();
             const period = `${targetDate.getFullYear()}-${String(targetDate.getMonth() + 1).padStart(2, '0')}`;
             
@@ -111,15 +93,23 @@ exports.receivePayment = async (req, res) => {
             await JournalEntry.create({
                 entryNumber,
                 documentDate: targetDate,
+                date: targetDate,
                 period,
-                description: `AR Payment Received - ${sale.orNumber || 'Invoice'} (${sale.customerName})`,
+                division: sale.division,
+                // 🛡️ THE FIX: Add the Walk-in fallback right into the ledger description!
+                description: `AR Payment Received - ${sale.orNumber || 'Invoice'} (${sale.customerName || 'Walk-in'})`,
                 sourceDocument: sale._id,
                 lines: [
-                    { account: cashAccount._id, debit: amount, credit: 0, memo: `Payment via ${method}` },
+                    { account: targetAssetAccount._id, debit: amount, credit: 0, memo: `Payment via ${method}` },
                     { account: arAccount._id, debit: 0, credit: amount, memo: 'Reducing Customer Debt' }
                 ],
                 postedBy: req.user.id || req.user._id
             });
+            
+            // Real-time ledger update
+            targetAssetAccount.currentBalance = (targetAssetAccount.currentBalance || 0) + amount;
+            arAccount.currentBalance = (arAccount.currentBalance || 0) - amount;
+            await Promise.all([targetAssetAccount.save(), arAccount.save()]);
         }
 
         res.status(200).json({ success: true, message: 'Payment recorded successfully!', data: sale });

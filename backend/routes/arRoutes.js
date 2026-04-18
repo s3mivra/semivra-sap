@@ -1,16 +1,13 @@
 const express = require('express');
 const router = express.Router();
-const arController = require('../controllers/arController');
-const { protect, authorize } = require('../middleware/auth'); 
-
-router.use(protect);
-router.use(authorize('Admin', 'Super Admin'));
+const { getUnpaidReceivables, receivePayment, getCustomerStatement } = require('../controllers/arController');
+const { protect } = require('../middleware/auth'); // Or whatever your auth middleware is named
 
 // Your existing payment routes
-router.get('/unpaid', arController.getUnpaidReceivables);
-router.post('/pay/:id', arController.receivePayment);
+router.get('/unpaid', protect, getUnpaidReceivables);
 
-// 👇 The new Aging route we just added 👇
-router.get('/aging', arController.getARAgingReport);
+// 🛡️ THE FIX: Add the missing payment route that React is looking for!
+router.post('/:id/pay', protect, receivePayment);
 
+router.get('/statement/:customerId', protect, getCustomerStatement);
 module.exports = router;

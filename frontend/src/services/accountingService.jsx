@@ -47,3 +47,10 @@ export const recordPayment = async (paymentData) => {
     // Posts the payment and creates the Journal Entry (Debit AP, Credit Cash)
     return await api.post('/accounting/ap/pay', paymentData); 
 };
+
+export const seedStandardAccounts = async () => {
+    
+    const response = await api.post(`/accounting/coa/seed`);
+
+    return response.data;
+};

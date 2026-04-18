@@ -22,6 +22,10 @@ const JournalEntrySchema = new mongoose.Schema({
     documentDate: { type: Date, required: true }, // When the actual invoice/receipt happened
     postingDate: { type: Date, default: Date.now }, // When the accountant typed it into the system
     period: { type: String, required: true }, // Format: "YYYY-MM" (e.g., "2026-04") for fast P&L queries
+
+    // Add these right below your division and postedBy fields:
+    isCleared: { type: Boolean, default: false }, 
+    clearedDate: { type: Date },
     
     description: { type: String, required: true },
     sourceDocument: { type: String }, // Reference to a Sale, Purchase Order, or Payroll Run

@@ -8,13 +8,24 @@ const Account = require('../models/Account');
 const { getDivision } = require('../utils/divisionHelper');
 
 exports.processCheckout = async (req, res) => {
+    console.log("🚨 POS CONTROLLER HIT! Payload:", req.body);
     // 🛡️ Start an ACID Transaction to prevent Race Conditions
     const session = await mongoose.startSession();
 
     try {
         await session.withTransaction(async () => {
-            const { items, paymentMethod, warehouseId, taxRate = 12, discountAmount = 0, customerName = 'Walk-in' } = req.body;
+            // 🛡️ THE FIX: Guarantee a customerName is always set
+            const { items, paymentMethod, warehouseId, taxRate = 12, discountAmount = 0 } = req.body;
+            const customerName = req.body.customerName || 'Walk-in';
             const targetDivision = getDivision(req);
+
+            // 🛡️ THE FIX: Sanitize the frontend payload! 
+            // This strips out 'name' or any other UI-only variables before Mongoose sees it.
+            const cleanItems = items.map(item => ({
+                product: item.product,
+                quantity: Number(item.quantity),
+                price: Number(item.price)
+            }));
             
             if (!targetDivision) throw new Error("Division ID required");
 
@@ -34,37 +45,12 @@ exports.processCheckout = async (req, res) => {
             const bulkInventoryUpdates = [];
 
             // 2. THE ENGINE: COGS Calculation & Atomic Inventory Locks
-            for (let item of items) {
+            for (let item of cleanItems) { // 🛡️ FIX 1: Loop through cleanItems!
                 const product = await Product.findById(item.product).session(session);
                 if (!product) throw new Error(`Product missing: ${item.product}`);
 
-                // A. PHYSICAL GOODS
-                if (product.isPhysical) {
-                    if (product.currentStock < item.quantity) {
-                        throw new Error(`Insufficient stock for ${product.name}. Only ${product.currentStock} left.`);
-                    }
-                    totalCOGS += (product.averageCost || 0) * item.quantity;
-                    
-                    // Queue Atomic Deduction (prevents race conditions)
-                    bulkInventoryUpdates.push({
-                        updateOne: {
-                            filter: { _id: product._id, currentStock: { $gte: item.quantity } }, 
-                            update: { $inc: { currentStock: -item.quantity } }
-                        }
-                    });
-
-                    stockMovements.push({
-                        division: targetDivision,
-                        product: product._id,
-                        warehouse: warehouseId,
-                        type: 'OUT',
-                        quantity: item.quantity,
-                        reference: `POS Sale: ${orNumber}`,
-                        processedBy: req.user.id
-                    });
-                } 
-                // B. ASSEMBLED RECIPES (Bill of Materials)
-                else if (product.isRecipe && product.ingredients && product.ingredients.length > 0) {
+                // 🌟 FIX 2: CHECK FOR RECIPES FIRST!
+                if (product.isPhysical && product.isRecipe && product.ingredients && product.ingredients.length > 0) {
                     for (let ing of product.ingredients) {
                         const rawMaterial = await Product.findById(ing.rawMaterial).session(session);
                         if (!rawMaterial) throw new Error(`Raw material missing for recipe ${product.name}`);
@@ -93,14 +79,42 @@ exports.processCheckout = async (req, res) => {
                             type: 'OUT',
                             quantity: totalRequiredQty,
                             reference: `Assembled for POS Sale: ${orNumber} (${product.name})`,
-                            processedBy: req.user.id
+                            processedBy: req.user?.id || req.user?._id
                         });
                     }
+                } 
+                // 📦 FIX 3: THEN CHECK STANDARD PHYSICAL GOODS
+                else if (product.isPhysical && !product.isRecipe) {
+                    if (product.currentStock < item.quantity) {
+                        throw new Error(`Insufficient stock for ${product.name}. Only ${product.currentStock} left.`);
+                    }
+                    totalCOGS += (product.averageCost || 0) * item.quantity;
+                    
+                    // Queue Atomic Deduction
+                    bulkInventoryUpdates.push({
+                        updateOne: {
+                            filter: { _id: product._id, currentStock: { $gte: item.quantity } }, 
+                            update: { $inc: { currentStock: -item.quantity } }
+                        }
+                    });
+
+                    stockMovements.push({
+                        division: targetDivision,
+                        product: product._id,
+                        warehouse: warehouseId,
+                        type: 'OUT',
+                        quantity: item.quantity,
+                        reference: `POS Sale: ${orNumber}`,
+                        processedBy: req.user?.id || req.user?._id
+                    });
                 }
             }
 
             totalCOGS = Number(totalCOGS.toFixed(2));
-            const saleStatus = paymentMethod === 'AR' ? 'Unpaid' : 'Paid';
+
+            // 🛡️ THE FIX: Check if the payment method is AR or GCash
+            const isReceivable = ['AR', 'GCash', 'Gcash'].includes(paymentMethod);
+            const saleStatus = isReceivable ? 'Unpaid' : 'Paid';
 
             // 3. Execute Bulk Atomic Deductions
             if (bulkInventoryUpdates.length > 0) {
@@ -118,7 +132,7 @@ exports.processCheckout = async (req, res) => {
             const saleRecords = await Sale.create([{
                 receiptNumber, 
                 orNumber,
-                items, 
+                items: cleanItems,
                 totalAmount: finalTotalAmount, 
                 vatableSales: netSubtotal, 
                 vatAmount, 
@@ -134,20 +148,41 @@ exports.processCheckout = async (req, res) => {
             const sale = saleRecords[0];
 
             // 5. AUTOMATION: Professional Accounting
-            let revenueAccount = await Account.findOne({ name: 'Sales Revenue', division: targetDivision }).session(session);
-            let vatAccount = await Account.findOne({ code: '2100', division: targetDivision }).session(session) || await Account.create([{ name: 'VAT Payable', type: 'Liability', code: '2100', division: targetDivision }], { session })[0];
-            let cogsAccount = await Account.findOne({ code: '5000', division: targetDivision }).session(session) || await Account.create([{ name: 'Cost of Goods Sold', type: 'Expense', code: '5000', division: targetDivision }], { session })[0];
-            let invAccount = await Account.findOne({ code: '1500', division: targetDivision }).session(session) || await Account.create([{ name: 'Inventory Asset', type: 'Asset', code: '1500', division: targetDivision }], { session })[0];
+            // 5. AUTOMATION: Professional Accounting
+            // 🛡️ THE FIX: Using the strict schema fields (accountName, accountType, accountCode) so Mongoose doesn't crash!
+
+            let revenueAccount = await Account.findOne({ $or: [{ name: 'Sales Revenue' }, { accountName: 'Sales Revenue' }], division: targetDivision }).session(session) || 
+                (await Account.create([{ accountName: 'Sales Revenue', name: 'Sales Revenue', accountType: 'Revenue', type: 'Revenue', accountCode: '4000', code: '4000', division: targetDivision }], { session }))[0];
+
+            let vatAccount = await Account.findOne({ $or: [{ code: '2100' }, { accountCode: '2100' }], division: targetDivision }).session(session) || 
+                (await Account.create([{ accountName: 'VAT Payable', name: 'VAT Payable', accountType: 'Liability', type: 'Liability', accountCode: '2100', code: '2100', division: targetDivision }], { session }))[0];
+
+            let cogsAccount = await Account.findOne({ $or: [{ code: '5000' }, { accountCode: '5000' }], division: targetDivision }).session(session) || 
+                (await Account.create([{ accountName: 'Cost of Goods Sold', name: 'Cost of Goods Sold', accountType: 'Expense', type: 'Expense', accountCode: '5000', code: '5000', division: targetDivision }], { session }))[0];
+
+            let invAccount = await Account.findOne({ $or: [{ code: '1500' }, { accountCode: '1500' }], division: targetDivision }).session(session) || 
+                (await Account.create([{ accountName: 'Inventory Asset', name: 'Inventory Asset', accountType: 'Asset', type: 'Asset', accountCode: '1500', code: '1500', division: targetDivision }], { session }))[0];
             
             let assetAccount;
-            if (paymentMethod === 'AR') {
-                assetAccount = await Account.findOne({ code: '1200', division: targetDivision }).session(session) || await Account.create([{ name: 'Accounts Receivable', type: 'Asset', code: '1200', division: targetDivision }], { session })[0];
-            } else {
-                assetAccount = await Account.findOne({ name: 'Cash on Hand', division: targetDivision }).session(session);
-                if(!assetAccount) assetAccount = await Account.create([{ name: 'Cash on Hand', type: 'Asset', code: '1000', division: targetDivision }], { session })[0];
+
+            // 💳 1. CARD: Goes straight to the vault (Cash in Bank - Code 1010)
+            if (paymentMethod === 'Card') {
+                assetAccount = await Account.findOne({ $or: [{ code: '1010' }, { accountCode: '1010' }], division: targetDivision }).session(session) || 
+                    (await Account.create([{ accountName: 'Cash in Bank', name: 'Cash in Bank', accountType: 'Asset', type: 'Asset', accountCode: '1010', code: '1010', division: targetDivision }], { session }))[0];
+            } 
+            // 📱 2. AR & GCASH: Goes to Accounts Receivable (Code 1200) until the vendor settles
+            else if (paymentMethod === 'AR' || paymentMethod === 'GCash' || paymentMethod === 'Gcash') {
+                assetAccount = await Account.findOne({ $or: [{ code: '1200' }, { accountCode: '1200' }], division: targetDivision }).session(session) || 
+                    (await Account.create([{ accountName: 'Accounts Receivable', name: 'Accounts Receivable', accountType: 'Asset', type: 'Asset', accountCode: '1200', code: '1200', division: targetDivision }], { session }))[0];
+            } 
+            // 💵 3. CASH (Default): Stays in the physical drawer (Cash on Hand - Code 1000)
+            else {
+                assetAccount = await Account.findOne({ $or: [{ code: '1000' }, { accountCode: '1000' }], division: targetDivision }).session(session) || 
+                    (await Account.create([{ accountName: 'Cash on Hand', name: 'Cash on Hand', accountType: 'Asset', type: 'Asset', accountCode: '1000', code: '1000', division: targetDivision }], { session }))[0];
             }
 
             const entryCount = await JournalEntry.countDocuments({ division: targetDivision }).session(session);
+            // ... the rest of the code continues normally from here
             const entryNumber = `JRN-${new Date().getFullYear()}-${String(entryCount + 1).padStart(5, '0')}`;
 
             let lines = [
@@ -162,14 +197,21 @@ exports.processCheckout = async (req, res) => {
                 lines.push({ account: invAccount._id, debit: 0, credit: totalCOGS, memo: 'Inventory Reduction' });
             }
 
+            // 👇 ADD THIS TO CALCULATE THE FINANCIAL PERIOD
+            const targetDate = Date.now();
+            const dDate = new Date(targetDate);
+            const periodString = `${dDate.getFullYear()}-${String(dDate.getMonth() + 1).padStart(2, '0')}`;
+
             await JournalEntry.create([{
                 entryNumber, 
-                date: Date.now(), 
+                documentDate: targetDate, // 🛡️ THE FIX: Added required field
+                date: targetDate, 
+                period: periodString,     // 🛡️ THE FIX: Added required field
                 description: `POS Sale - ${orNumber} (${customerName})`, 
                 sourceDocument: sale._id,
                 division: targetDivision, 
                 lines: lines,
-                postedBy: req.user.id
+                postedBy: req.user?.id || req.user?._id
             }], { session });
 
             // Update real-time ledger balances

@@ -79,7 +79,7 @@ const ProductCatalog = () => {
                         <p className="text-sm text-slate-600 flex-grow mb-6 m-0">{product.description}</p>
                         <div className="mb-6">
                             <h4 className="text-green-600 text-2xl font-light m-0">
-                                ${product.price} 
+                                ₱{product.price} 
                                 <span className="text-xs text-slate-500 font-normal">
                                     {product.billingType === 'subscription' ? '/ yr' : '(One-time)'}
                                 </span>

@@ -1,14 +1,11 @@
 const express = require('express');
 const router = express.Router();
-const reconciliationController = require('../controllers/reconciliationController');
-const { protect } = require('../middleware/auth');
-const licenseShield = require('../middleware/licenseShield');
+const { getUnreconciledCash, reconcileTransactions } = require('../controllers/reconciliationController');
+const { protect, authorize } = require('../middleware/auth');
 
-router.use(protect);
-router.use(licenseShield);
-
-// 💡 CHANGE: Update this to 'unreconciled' to match your accountingService.jsx
-router.get('/unreconciled', reconciliationController.getUnreconciledCash);
-router.post('/clear', reconciliationController.reconcileTransactions);
+// 🔒 Use your dedicated controller functions
+// 🛡️ Added '/unreconciled' to match your frontend service call
+router.get('/unreconciled', protect, authorize('Admin', 'Super Admin'), getUnreconciledCash);
+router.post('/clear', protect, authorize('Admin', 'Super Admin'), reconcileTransactions);
 
 module.exports = router;

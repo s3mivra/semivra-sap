@@ -14,11 +14,13 @@ exports.getUnreconciledCash = async (req, res) => {
         const divIdString = targetDivision._id ? targetDivision._id.toString() : targetDivision.toString();
 
         // 1. Fetch Cash Accounts
+        // 1. Fetch REAL Bank Accounts (Exclude Cash on Hand)
         const cashAccounts = await Account.find({ 
             division: divIdString,
             $or: [
-                { accountName: { $regex: /Cash|Bank|BDO|BPI|Metrobank/i } },
-                { name: { $regex: /Cash|Bank|BDO|BPI|Metrobank/i } }
+                // 🛡️ THE FIX: Removed 'Cash' so we don't grab the physical POS drawer!
+                { accountName: { $regex: /Bank|BDO|BPI|Metrobank/i } },
+                { name: { $regex: /Bank|BDO|BPI|Metrobank/i } }
             ]
         });
         
@@ -75,49 +77,87 @@ exports.getUnreconciledCash = async (req, res) => {
     }
 };
 
-// ✅ BACKEND SYNTAX: exports.functionName
+// ✅ THE X-RAY DIAGNOSTIC CONTROLLER
+// ✅ THE BULLETPROOF "X-RAY" CONTROLLER
 exports.reconcileTransactions = async (req, res) => {
-    const session = await mongoose.startSession();
+    console.log("\n=============================================");
+    console.log("🚨 [DEBUG] 1. RECONCILIATION ROUTE HIT!");
+    console.log("🚨 INCOMING PAYLOAD:", req.body);
+    console.log("=============================================\n");
 
     try {
-        await session.withTransaction(async () => {
-            const { clearedEntryIds, statementDate, statementBalance } = req.body; 
-            const targetDivision = getDivision(req);
+        const { clearedEntryIds, statementDate } = req.body; 
+        const targetDivision = getDivision(req);
 
-            if (!targetDivision) throw new Error('Division context missing.');
-            const divIdString = targetDivision._id ? targetDivision._id.toString() : targetDivision.toString();
+        console.log("🚨 2. TARGET DIVISION:", targetDivision);
 
-            if (!clearedEntryIds || !Array.isArray(clearedEntryIds) || clearedEntryIds.length === 0) {
-                throw new Error("No transactions selected for reconciliation.");
-            }
+        if (!clearedEntryIds || !Array.isArray(clearedEntryIds) || clearedEntryIds.length === 0) {
+            return res.status(400).json({ success: false, message: "No transactions selected for reconciliation." });
+        }
 
-            const result = await JournalEntry.updateMany(
-                { 
-                    division: divIdString,
-                    "lines._id": { $in: clearedEntryIds } 
-                },
-                { 
-                    $set: { 
-                        "lines.$[elem].isReconciled": true,
-                        "lines.$[elem].reconciledAt": statementDate ? new Date(statementDate) : new Date()
-                    } 
-                },
-                { 
-                    arrayFilters: [{ "elem._id": { $in: clearedEntryIds } }],
-                    session 
-                }
-            );
+        let updatedCount = 0;
 
-            if (result.modifiedCount === 0) {
-                throw new Error("Failed to update records. Line IDs may be invalid or already reconciled.");
-            }
+        console.log(`🚨 3. SEARCHING DATABASE FOR THESE LINE IDs:`, clearedEntryIds);
+
+        // Fetch the exact Journal Entries that contain the lines we want to clear
+        const entries = await JournalEntry.find({
+            division: targetDivision,
+            "lines._id": { $in: clearedEntryIds } 
         });
 
-        res.status(200).json({ success: true, message: "Transactions successfully reconciled and locked." });
+        console.log(`🚨 4. MONGODB FOUND [ ${entries.length} ] JOURNAL ENTRIES.`);
+
+        if (entries.length === 0) {
+            throw new Error("Database found 0 entries. Check if the Division is correct or if the data actually exists.");
+        }
+
+        // Modify the lines manually using pure JavaScript
+        for (let entry of entries) {
+            let documentChanged = false;
+            console.log(`\n➡️ OPENING ENTRY: ${entry.entryNumber} (ID: ${entry._id})`);
+
+            for (let line of entry.lines) {
+                const lineIdString = line._id.toString();
+                
+                // Compare what the database has against what React sent
+                if (clearedEntryIds.includes(lineIdString)) {
+                    console.log(`   ✅ MATCH FOUND: Line ID [ ${lineIdString} ]`);
+                    console.log(`      🔄 Before: isReconciled = ${line.isReconciled}`);
+                    
+                    // The actual update
+                    line.isReconciled = true;
+                    line.reconciledAt = statementDate ? new Date(statementDate) : new Date();
+                    
+                    console.log(`      🔄 After: isReconciled = ${line.isReconciled}`);
+                    documentChanged = true;
+                    updatedCount++;
+                } else {
+                    console.log(`   ❌ Skipped: Line ID [ ${lineIdString} ] (Not selected by user)`);
+                }
+            }
+
+            // Save the document back to the database
+            if (documentChanged) {
+                console.log(`   💾 Attempting to save Entry ${entry.entryNumber}...`);
+                await entry.save(); 
+                console.log(`   ✅ Entry ${entry.entryNumber} saved successfully!`);
+            }
+        }
+
+        console.log(`\n🚨 5. FINAL TALLY: [ ${updatedCount} ] LINES UPDATED SUCCESSFULLY.`);
+
+        if (updatedCount === 0) {
+            throw new Error("Found the entries, but 0 lines were updated. Are they already set to true?");
+        }
+
+        res.status(200).json({ 
+            success: true, 
+            message: `Successfully locked ${updatedCount} transactions!` 
+        });
+
     } catch (error) {
-        console.error("Bulk Reconciliation Error:", error);
+        console.error("\n🔥 FATAL RECONCILIATION ERROR 🔥");
+        console.error(error);
         res.status(400).json({ success: false, message: error.message });
-    } finally {
-        session.endSession();
     }
 };
